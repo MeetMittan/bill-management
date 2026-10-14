@@ -1,0 +1,226 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Financial Audit & Tax Executive Dashboard</h1>
+      <p class="page-subtitle">Real-time oversight of expenditures, input tax credits (GST/VAT), compliance checks, and discrepancies.</p>
+    </div>
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+      <a href="/api/analytics/export-csv?type=categories" class="btn btn-secondary" title="Download Category Summary CSV">
+        📥 Category CSV
+      </a>
+      <a href="/api/analytics/export-csv?type=bills" class="btn btn-secondary" title="Download Invoices CSV">
+        📊 Export All CSV
+      </a>
+      <a href="/upload" class="btn btn-primary">
+        ➕ Upload & OCR Bill
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI Overview Grid -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-title">Total Gross Spend</span>
+        <div class="kpi-icon primary">💰</div>
+      </div>
+      <div class="kpi-value">$<%= (kpis.totalSpend || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) %></div>
+      <div class="kpi-subtitle">Across <%= kpis.totalBills || 0 %> processed invoices</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-title">Total Tax Paid (GST/VAT)</span>
+        <div class="kpi-icon success">🏛️</div>
+      </div>
+      <div class="kpi-value" style="color: var(--success);">$<%= (kpis.totalTaxPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) %></div>
+      <div class="kpi-subtitle">Input Tax Credit (ITC) claimable</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-title">Pending Due Amount</span>
+        <div class="kpi-icon warning">⏳</div>
+      </div>
+      <div class="kpi-value" style="color: var(--warning);">$<%= (kpis.dueSpend || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) %></div>
+      <div class="kpi-subtitle"><%= kpis.dueCount || 0 %> unpaid invoices</div>
+    </div>
+
+    <div class="kpi-card" style="<%= (kpis.mathDiscrepancies > 0 || kpis.duplicates > 0) ? 'border-color: var(--danger-border); background-color: #fffaf0;' : '' %>">
+      <div class="kpi-header">
+        <span class="kpi-title">Audit Flag Alerts</span>
+        <div class="kpi-icon danger">⚠️</div>
+      </div>
+      <div class="kpi-value" style="color: var(--danger);"><%= (kpis.mathDiscrepancies || 0) + (kpis.duplicates || 0) %></div>
+      <div class="kpi-subtitle">
+        <span style="color: var(--danger); font-weight: 600;"><%= kpis.mathDiscrepancies || 0 %> Math Errors</span> &bull; 
+        <span style="color: #b45309; font-weight: 600;"><%= kpis.duplicates || 0 %> Duplicates</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analytics & Visual Breakdown -->
+  <div class="chart-grid">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">📈 Net Spend & Tax Distribution</h3>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Monthly Trend (Subtotal vs Tax)</span>
+      </div>
+      <div class="card-body" style="height: 320px; position: relative;">
+        <canvas id="monthlyTrendChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">🏷️ Category Breakdown</h3>
+        <a href="/bills" style="font-size: 0.8rem; color: var(--primary); text-decoration: none; font-weight: 600;">View All &rarr;</a>
+      </div>
+      <div class="card-body" style="height: 320px; position: relative;">
+        <canvas id="categoryPieChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Bills & Compliance Audit Table -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">📑 Recent Verified Invoices & Audit Status</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">Showing recent bills with automated math and compliance verification.</p>
+      </div>
+      <div style="display: flex; gap: 0.5rem;">
+        <a href="/bills?auditFilter=mathDiscrepancy" class="btn btn-secondary btn-sm" style="color: var(--danger);">
+          🔴 View Math Discrepancies (<%= kpis.mathDiscrepancies || 0 %>)
+        </a>
+        <a href="/bills" class="btn btn-secondary btn-sm">Full Bills Registry &rarr;</a>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Vendor & Firm</th>
+            <th>Invoice #</th>
+            <th>Category</th>
+            <th>Bill Date</th>
+            <th>Subtotal</th>
+            <th>Tax (GST/VAT)</th>
+            <th>Grand Total</th>
+            <th>Status</th>
+            <th>Compliance / Audit</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (recentBills && recentBills.length > 0) { %>
+            <% recentBills.forEach(bill => { %>
+              <tr class="<%= bill.auditFlags?.mathDiscrepancy ? 'audit-discrepancy' : '' %>">
+                <td>
+                  <strong><%= bill.vendorName %></strong>
+                  <% if (bill.firmName) { %>
+                    <br><small style="color: var(--text-muted);"><%= bill.firmName %></small>
+                  <% } %>
+                </td>
+                <td>
+                  <code><%= bill.invoiceNumber || 'N/A' %></code>
+                  <% if (bill.taxId) { %>
+                    <br><small style="color: #64748b; font-size: 0.75rem;">ID: <%= bill.taxId %></small>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="badge badge-info" style="background-color: #f1f5f9; color: #334155;">
+                    <%= bill.categoryName || 'General' %>
+                  </span>
+                </td>
+                <td><%= bill.billDate ? new Date(bill.billDate).toLocaleDateString() : 'N/A' %></td>
+                <td>$<%= (bill.subtotal || 0).toFixed(2) %></td>
+                <td style="color: var(--success); font-weight: 600;">$<%= (bill.taxAmount || 0).toFixed(2) %></td>
+                <td>
+                  <strong style="font-size: 1rem;">$<%= (bill.grandTotal || 0).toFixed(2) %></strong>
+                </td>
+                <td>
+                  <span id="status-badge-<%= bill._id %>" class="badge badge-<%= bill.paymentStatus.toLowerCase() %>">
+                    <%= bill.paymentStatus %>
+                  </span>
+                </td>
+                <td>
+                  <% if (bill.auditFlags?.mathDiscrepancy) { %>
+                    <span class="flag-pill" title="<%= bill.auditFlags.mathDiscrepancyDetails %>">
+                      🔴 Math Discrepancy
+                    </span>
+                  <% } %>
+                  <% if (bill.auditFlags?.duplicateReceipt) { %>
+                    <span class="badge badge-warning" title="Duplicate receipt matched by hash or invoice number">
+                      ⚠️ Duplicate
+                    </span>
+                  <% } %>
+                  <% if (bill.auditFlags?.missingTaxId) { %>
+                    <span class="badge badge-warning" title="Missing GSTIN / VAT ID for tax deduction">
+                      No Tax ID
+                    </span>
+                  <% } %>
+                  <% if (!bill.auditFlags?.mathDiscrepancy && !bill.auditFlags?.duplicateReceipt && !bill.auditFlags?.missingTaxId) { %>
+                    <span class="badge badge-paid">✅ Verified</span>
+                  <% } %>
+                </td>
+                <td>
+                  <div style="display: flex; gap: 0.4rem;">
+                    <button class="btn btn-secondary btn-sm btn-status-toggle" data-bill-id="<%= bill._id %>">
+                      <%= bill.paymentStatus === 'Paid' ? 'Mark Due' : 'Mark Paid' %>
+                    </button>
+                    <a href="/bills/<%= bill._id %>" class="btn btn-secondary btn-sm" title="View details and audit notes">
+                      Audit &rarr;
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          <% } else { %>
+            <tr>
+              <td colspan="10" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🧾</div>
+                <p style="font-weight: 600; font-size: 1.1rem; color: var(--text-main);">No invoices uploaded yet</p>
+                <p style="font-size: 0.9rem; margin-top: 0.25rem;">Upload your first invoice or tax receipt to start automated OCR, AI parsing, and math audit checks.</p>
+                <a href="/upload" class="btn btn-primary" style="margin-top: 1rem;">Upload Invoice Now</a>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Upcoming Due Dates Section -->
+  <% if (upcomingDueBills && upcomingDueBills.length > 0) { %>
+    <div class="card" style="border-left: 4px solid var(--warning);">
+      <div class="card-header">
+        <h3 class="card-title">⏳ Upcoming Bill Due Dates (Automated 3-Day Reminders Active)</h3>
+      </div>
+      <div class="card-body" style="padding: 1rem 1.5rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+          <% upcomingDueBills.forEach(b => { %>
+            <div style="background-color: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1rem; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong><%= b.vendorName %></strong>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Due: <%= new Date(b.dueDate).toLocaleDateString() %></div>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-size: 1.1rem; font-weight: 800; color: #dc2626;">$<%= b.grandTotal.toFixed(2) %></div>
+                <button class="btn btn-secondary btn-sm btn-status-toggle" data-bill-id="<%= b._id %>" style="margin-top: 0.3rem;">Mark Paid</button>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<script src="/js/dashboardCharts.js"></script>
+<%- include('partials/footer') %>
+

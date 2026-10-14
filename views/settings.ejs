@@ -1,0 +1,141 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<div class="container" style="max-width: 860px;">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Profile & AI Engine Configuration</h1>
+      <p class="page-subtitle">Manage your local Ollama instance or securely store your Gemini / OpenAI API keys with AES-256 encryption.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span>🔐</span>
+        <h3 class="card-title">Encrypted AI Provider & Keys (AES-256-GCM)</h3>
+      </div>
+      <div>
+        <button type="button" id="btn-test-ai" class="btn btn-secondary btn-sm">
+          ⚡ Test Connection
+        </button>
+      </div>
+    </div>
+
+    <div class="card-body" style="padding: 2rem;">
+      <form id="settings-form">
+        <!-- Preferred AI Mode -->
+        <div class="form-group">
+          <label class="form-label" for="preferredProvider">Primary AI Reasoning Engine</label>
+          <select id="preferredProvider" name="preferredProvider" class="form-control">
+            <option value="ollama" <%= user.aiSettings?.preferredProvider === 'ollama' ? 'selected' : '' %>>
+              Local Ollama (Privacy Mode - 100% On-Premise / Open-Weight)
+            </option>
+            <option value="gemini" <%= user.aiSettings?.preferredProvider === 'gemini' ? 'selected' : '' %>>
+              Google Gemini API (Cloud AI Mode)
+            </option>
+            <option value="openai" <%= user.aiSettings?.preferredProvider === 'openai' ? 'selected' : '' %>>
+              OpenAI API (Cloud AI Mode - GPT-4o-mini)
+            </option>
+          </select>
+          <small style="color: var(--text-muted); display: block; margin-top: 0.35rem;">
+            If the configured cloud provider key is absent or unreachable, the system automatically falls back to Ollama or the local rule-based heuristic audit engine.
+          </small>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0;" />
+
+        <!-- Local Ollama Configuration -->
+        <h4 style="font-size: 1rem; font-weight: 700; color: var(--dark); margin-bottom: 1rem;">
+          🖥️ Local Ollama Setup (Default/Privacy Mode)
+        </h4>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label" for="ollamaBaseUrl">Ollama Host URL</label>
+            <input type="url" id="ollamaBaseUrl" name="ollamaBaseUrl" class="form-control" value="<%= user.aiSettings?.ollamaBaseUrl || 'http://localhost:11434' %>" placeholder="http://localhost:11434">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ollamaModel">Model Tag</label>
+            <input type="text" id="ollamaModel" name="ollamaModel" class="form-control" value="<%= user.aiSettings?.ollamaModel || 'llama3' %>" placeholder="llama3 or gemma">
+          </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0;" />
+
+        <!-- Cloud AI Keys (Encrypted) -->
+        <h4 style="font-size: 1rem; font-weight: 700; color: var(--dark); margin-bottom: 0.5rem;">
+          ☁️ Cloud AI API Keys (Stored with AES-256-GCM Encryption)
+        </h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          Your API keys are encrypted at rest using an AES-256 cryptographic cipher before being written to MongoDB Atlas.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="geminiApiKey">
+            Google Gemini API Key
+            <% if (hasGeminiKey) { %>
+              <span class="badge badge-paid" style="margin-left: 0.5rem;">Encrypted & Saved (<%= geminiKeyMasked %>)</span>
+            <% } %>
+          </label>
+          <input type="password" id="geminiApiKey" name="geminiApiKey" class="form-control" placeholder="<%= hasGeminiKey ? '••••••••••••••••••••••••' : 'AIzaSy...' %>">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="openAiApiKey">
+            OpenAI API Key
+            <% if (hasOpenAiKey) { %>
+              <span class="badge badge-paid" style="margin-left: 0.5rem;">Encrypted & Saved (<%= openAiKeyMasked %>)</span>
+            <% } %>
+          </label>
+          <input type="password" id="openAiApiKey" name="openAiApiKey" class="form-control" placeholder="<%= hasOpenAiKey ? '••••••••••••••••••••••••' : 'sk-proj-...' %>">
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0;" />
+
+        <!-- Email Notifications & Due Date Reminders -->
+        <h4 style="font-size: 1rem; font-weight: 700; color: var(--dark); margin-bottom: 0.5rem;">
+          📬 Nodemailer Payment Reminders
+        </h4>
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+          <input type="checkbox" id="emailAlertsEnabled" name="emailAlertsEnabled" value="true" <%= user.emailAlertsEnabled !== false ? 'checked' : '' %> style="width: 18px; height: 18px; cursor: pointer;">
+          <label for="emailAlertsEnabled" style="font-size: 0.9rem; cursor: pointer; color: var(--text-main);">
+            Automatically send email reminders 3 days before a bill's payment Due Date to <strong><%= user.email %></strong>.
+          </label>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end;">
+          <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">
+            💾 Save Settings (Encrypt Keys)
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Account Card -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">👤 Auditor Profile Information</h3>
+    </div>
+    <div class="card-body" style="padding: 1.5rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+        <div>
+          <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Full Name</span>
+          <p style="font-size: 1rem; font-weight: 600; color: var(--dark);"><%= user.name %></p>
+        </div>
+        <div>
+          <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Email Address</span>
+          <p style="font-size: 1rem; font-weight: 600; color: var(--dark);"><%= user.email %></p>
+        </div>
+        <div>
+          <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Role</span>
+          <p style="font-size: 1rem; font-weight: 600; color: var(--primary);"><%= user.role || 'Auditor' %></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
+

@@ -1,0 +1,25 @@
+<% if (typeof user !== 'undefined' && user) { %>
+<nav class="navbar">
+  <a href="/dashboard" class="nav-brand">
+    <div class="brand-icon">🧾</div>
+    <span>Audit<span style="color: var(--primary);">Tax</span> AI</span>
+  </a>
+
+  <ul class="nav-links">
+    <li><a href="/dashboard">📊 Dashboard</a></li>
+    <li><a href="/bills">📑 All Bills</a></li>
+    <li><a href="/upload">⚡ Upload & OCR</a></li>
+    <li><a href="/chat">💬 Ask Your Bills</a></li>
+    <li><a href="/settings">⚙️ Settings</a></li>
+  </ul>
+
+  <div class="nav-user">
+    <div class="user-badge">
+      <span>👤 <%= user.name %></span>
+      <span style="font-size: 0.75rem; color: #64748b; font-weight: normal;">(<%= user.role || 'Auditor' %>)</span>
+    </div>
+    <a href="/logout" class="btn btn-secondary btn-sm" title="Sign Out">Sign Out</a>
+  </div>
+</nav>
+<% } %>
+

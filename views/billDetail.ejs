@@ -1,0 +1,359 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <h1 class="page-title"><%= bill.vendorName %></h1>
+        <span id="status-badge-<%= bill._id %>" class="badge badge-<%= bill.paymentStatus.toLowerCase() %>">
+          <%= bill.paymentStatus %>
+        </span>
+      </div>
+      <p class="page-subtitle">
+        Invoice #<%= bill.invoiceNumber || 'N/A' %> &bull; Uploaded on <%= new Date(bill.createdAt).toLocaleDateString() %> &bull; Category: <%= bill.categoryName %>
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;" class="no-print">
+      <button class="pii-mask-toggle" data-bill-id="<%= bill._id %>" data-target=".pii-target">
+        <%= bill.piiMasked ? '👁️ Reveal PII' : '🔒 Mask Sensitive PII' %>
+      </button>
+      <button class="btn btn-secondary btn-sm btn-status-toggle" data-bill-id="<%= bill._id %>">
+        <%= bill.paymentStatus === 'Paid' ? 'Mark Due' : 'Mark Paid' %>
+      </button>
+      <button onclick="window.print()" class="btn btn-secondary btn-sm">
+        🖨️ Print Audit Summary
+      </button>
+      <button onclick="deleteBill('<%= bill._id %>')" class="btn btn-secondary btn-sm" style="color: var(--danger);">
+        🗑️ Delete Record
+      </button>
+    </div>
+  </div>
+
+  <!-- Audit Alerts Banner -->
+  <% if (bill.auditFlags?.mathDiscrepancy) { %>
+    <div style="background-color: var(--danger-light); border: 2px solid var(--danger); border-radius: var(--radius-sm); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem;">
+      <span style="font-size: 1.8rem;">🔴</span>
+      <div>
+        <strong style="color: #991b1b; font-size: 1rem;">Math Discrepancy Detected:</strong>
+        <p style="color: #7f1d1d; font-size: 0.9rem; margin-top: 0.2rem;">
+          <%= bill.auditFlags.mathDiscrepancyDetails || 'Subtotal + Tax does not match the stated Grand Total. Please review the amounts below.' %>
+        </p>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (bill.auditFlags?.duplicateReceipt) { %>
+    <div style="background-color: var(--warning-light); border: 2px solid var(--warning); border-radius: var(--radius-sm); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem;">
+      <span style="font-size: 1.8rem;">⚠️</span>
+      <div>
+        <strong style="color: #92400e; font-size: 1rem;">Duplicate Receipt Alert:</strong>
+        <p style="color: #78350f; font-size: 0.9rem; margin-top: 0.2rem;">
+          This invoice has identical SHA-256 hash or matching vendor/invoice number with another record in your database. Double check to avoid duplicate expense claims.
+        </p>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (bill.auditFlags?.missingTaxId) { %>
+    <div style="background-color: #fff7ed; border: 1px solid #fdba74; border-radius: var(--radius-sm); padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem;">
+      <span>ℹ️</span>
+      <span style="font-size: 0.9rem; color: #9a3412;">
+        <strong>Tax Compliance Notice:</strong> No GSTIN or VAT Registration Number found on this invoice. Input Tax Credit (ITC) might be disallowed by tax authorities.
+      </span>
+    </div>
+  <% } %>
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;" class="detail-grid">
+    <!-- Left Column: Verification Form & Itemized Costs -->
+    <div>
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">📝 Verified Invoice Details & Manual Corrections</h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Edit fields to recalculate math checks</span>
+        </div>
+        <div class="card-body">
+          <form id="edit-bill-form">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="form-group">
+                <label class="form-label" for="vendorName">Vendor Name</label>
+                <input type="text" id="vendorName" name="vendorName" class="form-control" value="<%= bill.vendorName %>" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="firmName">Firm / Client Name</label>
+                <input type="text" id="firmName" name="firmName" class="form-control" value="<%= bill.firmName || '' %>" placeholder="Buyer company name">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="invoiceNumber">Invoice Number</label>
+                <input type="text" id="invoiceNumber" name="invoiceNumber" class="form-control pii-target <%= bill.piiMasked ? 'pii-masked' : '' %>" value="<%= bill.invoiceNumber || '' %>">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="category">Assigned Category</label>
+                <select id="category" name="category" class="form-control">
+                  <% categories.forEach(cat => { %>
+                    <option value="<%= cat._id %>" <%= (bill.category && bill.category._id.toString() == cat._id.toString()) ? 'selected' : '' %>>
+                      <%= cat.name %>
+                    </option>
+                  <% }); %>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="billDate">Bill Date</label>
+                <input type="date" id="billDate" name="billDate" class="form-control" value="<%= bill.billDate ? new Date(bill.billDate).toISOString().split('T')[0] : '' %>">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="dueDate">Payment Due Date</label>
+                <input type="date" id="dueDate" name="dueDate" class="form-control" value="<%= bill.dueDate ? new Date(bill.dueDate).toISOString().split('T')[0] : '' %>">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="taxId">Tax Registration ID (GSTIN / VAT)</label>
+                <input type="text" id="taxId" name="taxId" class="form-control pii-target <%= bill.piiMasked ? 'pii-masked' : '' %>" value="<%= bill.taxId || '' %>" placeholder="e.g. 29ABCDE1234F1Z5">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="paymentStatus">Payment Status</label>
+                <select id="paymentStatus" name="paymentStatus" class="form-control">
+                  <option value="Due" <%= bill.paymentStatus === 'Due' ? 'selected' : '' %>>Due (Unpaid)</option>
+                  <option value="Paid" <%= bill.paymentStatus === 'Paid' ? 'selected' : '' %>>Paid</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Financial Calculations Section -->
+            <div style="background-color: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1.25rem; margin: 1.25rem 0;">
+              <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.75rem; color: var(--dark);">
+                Financial Math Verification (Subtotal + Tax = Grand Total)
+              </h4>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" for="subtotal">Subtotal ($)</label>
+                  <input type="number" step="0.01" id="subtotal" name="subtotal" class="form-control" value="<%= (bill.subtotal || 0).toFixed(2) %>" required>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="taxAmount">Tax (GST/VAT) ($)</label>
+                  <input type="number" step="0.01" id="taxAmount" name="taxAmount" class="form-control" value="<%= (bill.taxAmount || 0).toFixed(2) %>" required>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="grandTotal">Grand Total ($)</label>
+                  <input type="number" step="0.01" id="grandTotal" name="grandTotal" class="form-control" style="font-weight: 700;" value="<%= (bill.grandTotal || 0).toFixed(2) %>" required>
+                </div>
+              </div>
+            </div>
+
+            <% if (bill.auditFlags?.needsManualReview) { %>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                <input type="checkbox" id="clearReviewFlag" name="clearReviewFlag" value="true" checked style="width: 18px; height: 18px;">
+                <label for="clearReviewFlag" style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">
+                  Mark this bill as manually reviewed & verified
+                </label>
+              </div>
+            <% } %>
+
+            <div style="display: flex; justify-content: flex-end;" class="no-print">
+              <button type="submit" class="btn btn-primary">
+                💾 Save Changes & Re-run Audit Math
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Itemized Costs Breakdown -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">📦 Itemized Line Items Extracted by AI</h3>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (bill.itemizedCosts && bill.itemizedCosts.length > 0) { %>
+                <% bill.itemizedCosts.forEach(item => { %>
+                  <tr>
+                    <td><%= item.description %></td>
+                    <td><%= item.quantity %></td>
+                    <td>$<%= (item.unitPrice || 0).toFixed(2) %></td>
+                    <td><strong>$<%= (item.amount || 0).toFixed(2) %></strong></td>
+                  </tr>
+                <% }); %>
+              <% } else { %>
+                <tr>
+                  <td colspan="4" style="text-align: center; color: var(--text-muted);">No itemized lines found. Stored as lump sum total.</td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Raw OCR Text (Accordion/Drawer) -->
+      <div class="card no-print">
+        <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('rawOcrBox').classList.toggle('hidden')">
+          <h3 class="card-title">🔍 Raw OCR Text Extracted from Receipt</h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Click to toggle</span>
+        </div>
+        <div id="rawOcrBox" class="card-body pii-target <%= bill.piiMasked ? 'pii-masked' : '' %>" style="max-height: 250px; overflow-y: auto; background-color: #f8fafc; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap;">
+<%= bill.ocrRawText || 'No raw text available' %>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Document Preview & Audit Notes Thread -->
+    <div>
+      <!-- Uploaded Document File Preview -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">📄 Original Document</h3>
+          <% if (bill.filePath) { %>
+            <a href="<%= bill.filePath %>" target="_blank" class="btn btn-secondary btn-sm" download>
+              ⬇️ Download File
+            </a>
+          <% } %>
+        </div>
+        <div class="card-body" style="text-align: center; padding: 1rem;">
+          <% if (bill.filePath) { %>
+            <% if (bill.fileMimeType && bill.fileMimeType.includes('pdf')) { %>
+              <div style="padding: 2rem 1rem; background: #f8fafc; border: 1px dashed var(--border-color); border-radius: var(--radius-sm);">
+                <div style="font-size: 3rem; margin-bottom: 0.5rem;">📑</div>
+                <p style="font-weight: 600; font-size: 0.9rem;"><%= bill.originalFileName || 'Invoice.pdf' %></p>
+                <small style="color: var(--text-muted);"><%= ((bill.fileSize || 0) / 1024).toFixed(1) %> KB</small>
+                <div style="margin-top: 1rem;">
+                  <a href="<%= bill.filePath %>" target="_blank" class="btn btn-primary btn-sm">
+                    Open PDF in Viewer &rarr;
+                  </a>
+                </div>
+              </div>
+            <% } else { %>
+              <div class="pii-target <%= bill.piiMasked ? 'pii-masked' : '' %>" style="overflow: hidden; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                <img src="<%= bill.filePath %>" alt="Uploaded Invoice" style="max-width: 100%; height: auto; display: block;">
+              </div>
+            <% } %>
+          <% } else { %>
+            <p style="color: var(--text-muted); padding: 2rem;">No file uploaded</p>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- Internal Audit Notes -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">📌 Internal Audit Notes</h3>
+        </div>
+        <div class="card-body" style="padding: 1.25rem;">
+          <div id="notes-container" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; max-height: 280px; overflow-y: auto;">
+            <% if (bill.notes && bill.notes.length > 0) { %>
+              <% bill.notes.forEach(note => { %>
+                <div style="background-color: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem;">
+                  <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                    <strong><%= note.author %></strong>
+                    <span><%= new Date(note.createdAt).toLocaleDateString() %></span>
+                  </div>
+                  <div style="font-size: 0.85rem; color: var(--text-main);"><%= note.text %></div>
+                </div>
+              <% }); %>
+            <% } else { %>
+              <p id="no-notes-msg" style="color: var(--text-muted); font-size: 0.85rem;">No audit notes attached yet.</p>
+            <% } %>
+          </div>
+
+          <form id="add-note-form" class="no-print">
+            <div class="form-group" style="margin-bottom: 0.5rem;">
+              <textarea id="noteText" name="noteText" class="form-control" rows="2" placeholder="Add an internal auditor observation or compliance comment..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-secondary btn-sm" style="width: 100%;">
+              ➕ Add Audit Note
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Handle Bill Edit Submission
+  const editForm = document.getElementById('edit-bill-form');
+  if (editForm) {
+    editForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(editForm);
+      const data = Object.fromEntries(formData.entries());
+
+      try {
+        const res = await fetch('/api/bills/<%= bill._id %>', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+          showToast('Bill details updated & audit math checks recalculated!', 'success');
+          setTimeout(() => window.location.reload(), 600);
+        } else {
+          showToast(result.message || 'Error updating bill', 'error');
+        }
+      } catch (err) {
+        showToast(`Failed to update: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  // Handle Note Submission
+  const noteForm = document.getElementById('add-note-form');
+  if (noteForm) {
+    noteForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const noteInput = document.getElementById('noteText');
+      const text = noteInput.value.trim();
+      if (!text) return;
+
+      try {
+        const res = await fetch('/api/bills/<%= bill._id %>/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ noteText: text })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showToast('Audit note recorded', 'success');
+          const noMsg = document.getElementById('no-notes-msg');
+          if (noMsg) noMsg.remove();
+
+          const container = document.getElementById('notes-container');
+          const newDiv = document.createElement('div');
+          newDiv.style = 'background-color: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem;';
+          newDiv.innerHTML = `
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+              <strong>${result.note.author}</strong>
+              <span>Just now</span>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-main);">${result.note.text}</div>
+          `;
+          container.prepend(newDiv);
+          noteInput.value = '';
+        }
+      } catch (err) {
+        showToast(`Failed to add note: ${err.message}`, 'error');
+      }
+    });
+  }
+</script>
+
+<%- include('partials/footer') %>
+

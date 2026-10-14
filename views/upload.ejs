@@ -1,0 +1,97 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<div class="container" style="max-width: 900px;">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Smart Bill Upload & Automated AI Audit</h1>
+      <p class="page-subtitle">Upload digital invoices (PDF, PNG, JPG). OCR and AI will automatically extract line items, calculate tax, and perform compliance math checks.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span>🤖</span>
+        <h3 class="card-title">Multi-Step AI Pipeline & OCR Engine</h3>
+      </div>
+      <div>
+        <span class="badge badge-info">
+          Active Mode: <%= preferredProvider.toUpperCase() %>
+        </span>
+      </div>
+    </div>
+
+    <div class="card-body" style="padding: 2rem;">
+      <form id="bill-upload-form" enctype="multipart/form-data">
+        <!-- Drag & Drop Upload Zone -->
+        <div id="upload-dropzone" class="upload-dropzone">
+          <div class="dropzone-icon">📄</div>
+          <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--dark);">
+            Drag & drop invoice here, or browse files
+          </h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Supports PDF, PNG, JPG, JPEG (Max 10MB). Files are SHA-256 hashed to detect duplicate claims.
+          </p>
+          <input type="file" id="billFile" name="billFile" accept=".pdf,.png,.jpg,.jpeg,.webp" style="display: none;" required>
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('billFile').click()">
+            Select File from Device
+          </button>
+          <div id="selected-file-name" style="margin-top: 1rem; font-weight: 600; font-size: 0.9rem; color: var(--primary);"></div>
+        </div>
+
+        <!-- Dynamic Multi-Step Progress Indicator -->
+        <div id="upload-progress-box" style="display: none; margin-top: 1.5rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <span id="upload-status-label" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+              Initializing audit pipeline...
+            </span>
+            <span style="font-size: 0.85rem; color: var(--text-muted);">Please wait</span>
+          </div>
+          <div style="background-color: #e2e8f0; border-radius: 10px; height: 10px; overflow: hidden;">
+            <div id="upload-progress-bar" style="background: linear-gradient(90deg, #2563eb, #10b981); width: 10%; height: 100%; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+          <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1rem;">
+            🚀 Upload & Run Audit Analysis
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Compliance Information Guide -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
+    <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1.25rem;">
+      <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--dark); margin-bottom: 0.4rem;">
+        1. OCR Text Extraction
+      </h4>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">
+        Digital invoices are parsed directly; scanned receipts are processed via Tesseract.js optical character recognition.
+      </p>
+    </div>
+
+    <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1.25rem;">
+      <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--dark); margin-bottom: 0.4rem;">
+        2. Dynamic Category Engine
+      </h4>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">
+        AI matches against your database categories or dynamically creates new categories automatically for unprecedented bill types.
+      </p>
+    </div>
+
+    <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 1.25rem;">
+      <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--dark); margin-bottom: 0.4rem;">
+        3. Automated Audit & Math Check
+      </h4>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">
+        Recalculates Subtotal + Tax = Grand Total. Flags mathematical discrepancies, duplicate files, and missing GSTIN/VAT numbers.
+      </p>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
+

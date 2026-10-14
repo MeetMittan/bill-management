@@ -1,0 +1,219 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Audit & Tax Bills Registry</h1>
+      <p class="page-subtitle">Search, filter, verify tax compliance, and manage invoice settlement status.</p>
+    </div>
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+      <a href="/api/analytics/export-csv?type=bills" class="btn btn-secondary">
+        📥 Export Filtered CSV
+      </a>
+      <a href="/upload" class="btn btn-primary">
+        ➕ Upload & OCR Bill
+      </a>
+    </div>
+  </div>
+
+  <!-- Search & Filter Controls -->
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-body" style="padding: 1.25rem 1.5rem;">
+      <form action="/bills" method="GET" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;">
+        <div>
+          <label class="form-label" for="search">Keyword Search</label>
+          <input type="text" id="search" name="search" class="form-control" placeholder="Vendor, Firm, Inv #, Tax ID" value="<%= query.search || '' %>">
+        </div>
+
+        <div>
+          <label class="form-label" for="category">Category</label>
+          <select id="category" name="category" class="form-control">
+            <option value="all">All Categories</option>
+            <% categories.forEach(cat => { %>
+              <option value="<%= cat._id %>" <%= query.category == cat._id.toString() ? 'selected' : '' %>>
+                <%= cat.name %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label" for="status">Payment Status</label>
+          <select id="status" name="status" class="form-control">
+            <option value="">All Statuses</option>
+            <option value="Due" <%= query.status === 'Due' ? 'selected' : '' %>>Due (Unpaid)</option>
+            <option value="Paid" <%= query.status === 'Paid' ? 'selected' : '' %>>Paid</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label" for="auditFilter">Audit Flag Filter</label>
+          <select id="auditFilter" name="auditFilter" class="form-control">
+            <option value="">All Records</option>
+            <option value="mathDiscrepancy" <%= query.auditFilter === 'mathDiscrepancy' ? 'selected' : '' %>>🔴 Math Discrepancy</option>
+            <option value="duplicate" <%= query.auditFilter === 'duplicate' ? 'selected' : '' %>>⚠️ Duplicate Receipt</option>
+            <option value="missingTaxId" <%= query.auditFilter === 'missingTaxId' ? 'selected' : '' %>>No GSTIN / Tax ID</option>
+            <option value="needsManualReview" <%= query.auditFilter === 'needsManualReview' ? 'selected' : '' %>>Needs Manual Review</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label" for="startDate">From Date</label>
+          <input type="date" id="startDate" name="startDate" class="form-control" value="<%= query.startDate || '' %>">
+        </div>
+
+        <div>
+          <label class="form-label" for="endDate">To Date</label>
+          <input type="date" id="endDate" name="endDate" class="form-control" value="<%= query.endDate || '' %>">
+        </div>
+
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="submit" class="btn btn-primary" style="flex: 1;">Filter</button>
+          <a href="/bills" class="btn btn-secondary" title="Clear Filters">Reset</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Bills Registry Table -->
+  <div class="card">
+    <div class="card-header">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <h3 class="card-title">Invoices (<%= totalCount %> found)</h3>
+        <% if (query.auditFilter === 'mathDiscrepancy') { %>
+          <span class="flag-pill">Filtering: Math Discrepancies</span>
+        <% } %>
+      </div>
+      <div style="font-size: 0.85rem; color: var(--text-muted);">
+        Page <%= currentPage %> of <%= totalPages %>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Vendor Name</th>
+            <th>Invoice #</th>
+            <th>Category</th>
+            <th>Bill Date</th>
+            <th>Due Date</th>
+            <th>Subtotal</th>
+            <th>Tax (GST/VAT)</th>
+            <th>Grand Total</th>
+            <th>Payment Status</th>
+            <th>Audit Checks</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (bills && bills.length > 0) { %>
+            <% bills.forEach(bill => { %>
+              <tr class="<%= bill.auditFlags?.mathDiscrepancy ? 'audit-discrepancy' : '' %>">
+                <td>
+                  <strong><%= bill.vendorName %></strong>
+                  <% if (bill.firmName) { %>
+                    <br><small style="color: var(--text-muted);"><%= bill.firmName %></small>
+                  <% } %>
+                </td>
+                <td>
+                  <code><%= bill.invoiceNumber || 'N/A' %></code>
+                  <% if (bill.taxId) { %>
+                    <br><small style="color: #64748b;">ID: <%= bill.taxId %></small>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="badge" style="background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0;">
+                    <%= bill.categoryName || (bill.category && bill.category.name) || 'General' %>
+                  </span>
+                </td>
+                <td><%= bill.billDate ? new Date(bill.billDate).toLocaleDateString() : 'N/A' %></td>
+                <td><%= bill.dueDate ? new Date(bill.dueDate).toLocaleDateString() : 'N/A' %></td>
+                <td>$<%= (bill.subtotal || 0).toFixed(2) %></td>
+                <td style="color: var(--success); font-weight: 600;">$<%= (bill.taxAmount || 0).toFixed(2) %></td>
+                <td>
+                  <strong style="font-size: 1rem;">$<%= (bill.grandTotal || 0).toFixed(2) %></strong>
+                </td>
+                <td>
+                  <span id="status-badge-<%= bill._id %>" class="badge badge-<%= bill.paymentStatus.toLowerCase() %>">
+                    <%= bill.paymentStatus %>
+                  </span>
+                </td>
+                <td>
+                  <% if (bill.auditFlags?.mathDiscrepancy) { %>
+                    <span class="flag-pill" title="<%= bill.auditFlags.mathDiscrepancyDetails %>">
+                      🔴 Math Error
+                    </span>
+                  <% } %>
+                  <% if (bill.auditFlags?.duplicateReceipt) { %>
+                    <span class="badge badge-warning" title="Duplicate receipt detected">
+                      ⚠️ Duplicate
+                    </span>
+                  <% } %>
+                  <% if (bill.auditFlags?.missingTaxId) { %>
+                    <span class="badge badge-warning" title="Missing Tax Registration / GSTIN">
+                      No Tax ID
+                    </span>
+                  <% } %>
+                  <% if (bill.auditFlags?.needsManualReview) { %>
+                    <span class="badge badge-danger" title="Review suggested">
+                      Review Needed
+                    </span>
+                  <% } %>
+                  <% if (!bill.auditFlags?.mathDiscrepancy && !bill.auditFlags?.duplicateReceipt && !bill.auditFlags?.missingTaxId && !bill.auditFlags?.needsManualReview) { %>
+                    <span class="badge badge-paid">✅ Verified</span>
+                  <% } %>
+                </td>
+                <td>
+                  <div style="display: flex; gap: 0.35rem;">
+                    <button class="btn btn-secondary btn-sm btn-status-toggle" data-bill-id="<%= bill._id %>" title="Toggle Paid/Due">
+                      <%= bill.paymentStatus === 'Paid' ? 'Mark Due' : 'Mark Paid' %>
+                    </button>
+                    <a href="/bills/<%= bill._id %>" class="btn btn-secondary btn-sm" title="Detailed Audit & Notes">
+                      Inspect &rarr;
+                    </a>
+                    <button class="btn btn-secondary btn-sm" style="color: var(--danger);" onclick="deleteBill('<%= bill._id %>')" title="Delete">
+                      🗑️
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          <% } else { %>
+            <tr>
+              <td colspan="11" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                <p style="font-size: 1rem; font-weight: 600;">No matching bill records found.</p>
+                <p style="font-size: 0.85rem; margin-top: 0.25rem;">Try adjusting your search criteria or date filters.</p>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Controls -->
+    <% if (totalPages > 1) { %>
+      <div style="padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color);">
+        <div>
+          Showing page <strong><%= currentPage %></strong> of <strong><%= totalPages %></strong> (<%= totalCount %> total bills)
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <% if (currentPage > 1) { %>
+            <a href="/bills?<%= new URLSearchParams({...query, page: currentPage - 1}).toString() %>" class="btn btn-secondary btn-sm">
+              &larr; Previous
+            </a>
+          <% } %>
+          <% if (currentPage < totalPages) { %>
+            <a href="/bills?<%= new URLSearchParams({...query, page: currentPage + 1}).toString() %>" class="btn btn-secondary btn-sm">
+              Next &rarr;
+            </a>
+          <% } %>
+        </div>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
+
