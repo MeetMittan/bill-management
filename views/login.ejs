@@ -1,46 +1,40 @@
 <%- include('partials/header') %>
 
-<div style="min-height: calc(100vh - 80px); display: flex; align-items: center; justify-content: center; padding: 2rem 1rem;">
-  <div class="card" style="width: 100%; max-width: 440px; box-shadow: var(--shadow-lg);">
-    <div class="card-header" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 2rem 2rem 1.5rem 2rem; background: linear-gradient(to bottom, #ffffff, #f8fafc);">
-      <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <div style="background: linear-gradient(135deg, #2563eb, #4f46e5); color: white; width: 42px; height: 42px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">🧾</div>
-        <div>
-          <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--dark);">Audit & Tax AI</h2>
-          <p style="font-size: 0.85rem; color: var(--text-muted);">Secure Principal Auditor Portal</p>
-        </div>
-      </div>
+<div class="auth-container">
+  <div class="card auth-card">
+    <div class="card-header auth-card-header">
+      <h2 style="font-size: 1.35rem; font-weight: 700; color: var(--dark); margin: 0;">Sign In</h2>
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.25rem;">Bill & Tax Audit Management</p>
     </div>
 
-    <div class="card-body" style="padding: 2rem;">
+    <div class="card-body auth-card-body">
       <% if (typeof error !== 'undefined' && error) { %>
-        <div style="background-color: var(--danger-light); border: 1px solid var(--danger-border); color: #991b1b; padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.9rem;">
-          ⚠️ <%= error %>
+        <div class="alert-box alert-error">
+          <%= error %>
         </div>
       <% } %>
 
       <form action="/login" method="POST">
         <div class="form-group">
-          <label class="form-label" for="email">Work Email Address</label>
-          <input type="email" id="email" name="email" class="form-control" placeholder="auditor@firm.com" required autofocus>
+          <label class="form-label" for="email">Email Address</label>
+          <input type="email" id="email" name="email" class="form-control" placeholder="name@example.com" required autofocus>
         </div>
 
         <div class="form-group">
           <label class="form-label" for="password">Password</label>
-          <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" required>
+          <input type="password" id="password" name="password" class="form-control" placeholder="Enter password" required>
         </div>
 
         <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; margin-top: 0.5rem;">
-          Sign In to Audit Portal &rarr;
+          Sign In
         </button>
       </form>
 
-      <div style="margin-top: 1.5rem; text-align: center; font-size: 0.9rem; color: var(--text-muted);">
-        Don't have an auditor account? <a href="/register" style="color: var(--primary); font-weight: 600; text-decoration: none;">Create Account</a>
+      <div style="margin-top: 1.5rem; text-align: center; font-size: 0.875rem; color: var(--text-muted);">
+        Don't have an account? <a href="/register" style="color: var(--secondary); font-weight: 600; text-decoration: none;">Create Account</a>
       </div>
     </div>
   </div>
 </div>
 
 <%- include('partials/footer') %>
-

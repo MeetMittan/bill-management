@@ -5,6 +5,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secure-audit-jwt-secret-key-
 
 /**
  * Protect routes by requiring a valid JWT in HTTP-Only cookies or Auth Header
+ * and restricting unverified email accounts.
  */
 async function protect(req, res, next) {
   let token = null;
@@ -24,7 +25,7 @@ async function protect(req, res, next) {
 
   if (!token) {
     if (isApiOrAjax) {
-      return res.status(401).json({ success: false, message: 'Authentication required. Please log in.' });
+      return res.status(401).json({ success: false, message: 'Please log in to continue.' });
     }
     return res.redirect('/login');
   }
@@ -36,26 +37,46 @@ async function protect(req, res, next) {
     if (!user) {
       res.clearCookie('token');
       if (isApiOrAjax) {
-        return res.status(401).json({ success: false, message: 'User account not found.' });
+        return res.status(401).json({ success: false, message: 'Account not found.' });
       }
       return res.redirect('/login');
     }
 
     req.user = user;
     res.locals.user = user;
+    res.locals.displayName = user.formattedName || User.formatFirstWordCaps(user.name);
+
+    // Restrict access until email is verified
+    const isVerificationRoute = req.path === '/verify-email' || 
+                                req.path === '/verify-otp' || 
+                                req.path === '/api/auth/verify-otp' || 
+                                req.path === '/api/auth/resend-otp' ||
+                                req.path === '/logout';
+
+    if (!user.isVerified && !isVerificationRoute) {
+      if (isApiOrAjax) {
+        return res.status(403).json({
+          success: false,
+          message: 'Please verify your email address to continue.',
+          needsVerification: true,
+          redirect: '/verify-otp'
+        });
+      }
+      return res.redirect('/verify-otp');
+    }
+
     next();
   } catch (err) {
-    console.error('Auth verification error:', err.message);
     res.clearCookie('token');
     if (isApiOrAjax) {
-      return res.status(401).json({ success: false, message: 'Session expired or invalid token. Please log in again.' });
+      return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
     }
     return res.redirect('/login');
   }
 }
 
 /**
- * Redirect logged in users away from login/register to dashboard
+ * Redirect logged in and verified users away from login/register to dashboard
  */
 async function redirectIfAuthenticated(req, res, next) {
   const token = req.cookies && req.cookies.token;
@@ -64,10 +85,13 @@ async function redirectIfAuthenticated(req, res, next) {
       const decoded = jwt.verify(token, JWT_SECRET);
       const user = await User.findById(decoded.id);
       if (user) {
+        if (!user.isVerified) {
+          return res.redirect('/verify-otp');
+        }
         return res.redirect('/dashboard');
       }
     } catch {
-      // Token invalid, proceed to login/register
+      // Token invalid, proceed
     }
   }
   next();
@@ -78,4 +102,3 @@ module.exports = {
   redirectIfAuthenticated,
   JWT_SECRET
 };
-

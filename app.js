@@ -65,6 +65,14 @@ app.post('/register', authLimiter, authController.register);
 
 app.get('/logout', authController.logout);
 
+// Email & Sign-In OTP Verification
+app.get('/verify-otp', authController.showVerifyEmail);
+app.post('/verify-otp', authController.verifyEmail);
+app.get('/verify-email', authController.showVerifyEmail);
+app.post('/verify-email', authController.verifyEmail);
+app.post('/api/auth/verify-otp', authController.verifyEmail);
+app.post('/api/auth/resend-otp', authController.resendOtp);
+
 // ========================================================
 // PROTECTED WEB VIEWS (EJS UI)
 // ========================================================
@@ -72,7 +80,9 @@ app.get('/dashboard', protect, analyticsController.showDashboard);
 app.get('/bills', protect, billController.getBills);
 app.get('/bills/:id', protect, billController.showBillDetail);
 app.get('/upload', protect, billController.showUpload);
-app.get('/settings', protect, authController.showSettings);
+app.get('/profile', protect, authController.showProfile);
+app.post('/profile', protect, authController.updateProfile);
+app.get('/settings', protect, (req, res) => res.redirect('/profile'));
 app.get('/chat', protect, chatController.showChat);
 
 // ========================================================
@@ -95,9 +105,10 @@ app.get('/api/analytics/export-csv', protect, analyticsController.exportCSV);
 // "Ask Your Bills" Local RAG Chat
 app.post('/api/chat/ask', protect, chatController.handleChatQuery);
 
-// AI Provider Settings & Live Verification
-app.post('/api/settings/ai', protect, authController.updateAiSettings);
-app.post('/api/settings/test-ai', protect, authController.testAiConnection);
+// User Profile Settings & Password Change
+app.post('/api/profile/update', protect, authController.updateProfile);
+app.post('/api/profile/change-password', protect, authController.changePassword);
+app.post('/api/settings/profile', protect, authController.updateProfile);
 
 // ========================================================
 // AUTOMATED DUE DATE REMINDER SCHEDULER (NODE-CRON)

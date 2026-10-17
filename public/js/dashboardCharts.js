@@ -1,10 +1,13 @@
 /**
- * Audit & Tax Analytics - Chart.js Visualizations
+ * Financial Analytics - Chart.js Visualizations (Indian Rupees ₹)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
   renderDashboardCharts();
 });
+
+let categoryChartInstance = null;
+let monthlyChartInstance = null;
 
 async function renderDashboardCharts() {
   const categoryCanvas = document.getElementById('categoryPieChart');
@@ -20,25 +23,32 @@ async function renderDashboardCharts() {
 
     // 1. Render Category Doughnut Chart
     if (categoryCanvas && categoryBreakdown) {
+      if (categoryChartInstance) {
+        categoryChartInstance.destroy();
+      }
       const ctxCat = categoryCanvas.getContext('2d');
       const hasData = categoryBreakdown.amounts && categoryBreakdown.amounts.length > 0;
 
       if (!hasData) {
-        ctxCat.font = '14px sans-serif';
-        ctxCat.fillStyle = '#94a3b8';
+        ctxCat.font = '13px sans-serif';
+        ctxCat.fillStyle = '#64748b';
         ctxCat.textAlign = 'center';
-        ctxCat.fillText('No bills uploaded yet to display category breakdown.', categoryCanvas.width / 2, categoryCanvas.height / 2);
+        ctxCat.fillText('No invoices found to display category breakdown.', categoryCanvas.width / 2, categoryCanvas.height / 2);
       } else {
-        new Chart(ctxCat, {
+        // Refined calm color palette
+        const palette = ['#0f172a', '#3b82f6', '#475569', '#64748b', '#0d9488', '#e2e8f0'];
+        const colors = categoryBreakdown.labels.map((_, i) => palette[i % palette.length]);
+
+        categoryChartInstance = new Chart(ctxCat, {
           type: 'doughnut',
           data: {
             labels: categoryBreakdown.labels,
             datasets: [{
               data: categoryBreakdown.amounts,
-              backgroundColor: categoryBreakdown.colors,
+              backgroundColor: colors,
               borderWidth: 2,
               borderColor: '#ffffff',
-              hoverOffset: 6
+              hoverOffset: 4
             }]
           },
           options: {
@@ -48,21 +58,23 @@ async function renderDashboardCharts() {
               legend: {
                 position: 'bottom',
                 labels: {
-                  boxWidth: 12,
-                  font: { size: 11, family: 'Inter, sans-serif' },
-                  color: '#475569'
+                  boxWidth: 10,
+                  boxHeight: 10,
+                  font: { size: 12, family: 'Inter, sans-serif' },
+                  color: '#334155',
+                  padding: 12
                 }
               },
               tooltip: {
                 callbacks: {
                   label: function(context) {
                     const val = context.raw || 0;
-                    return ` ${context.label}: $${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+                    return ` ${context.label}: ₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
                   }
                 }
               }
             },
-            cutout: '68%'
+            cutout: '72%'
           }
         });
       }
@@ -70,30 +82,33 @@ async function renderDashboardCharts() {
 
     // 2. Render Monthly Spending & Tax Trend Chart
     if (monthlyCanvas && monthlyTrend) {
+      if (monthlyChartInstance) {
+        monthlyChartInstance.destroy();
+      }
       const ctxMonth = monthlyCanvas.getContext('2d');
       const hasMonthlyData = monthlyTrend.totals && monthlyTrend.totals.length > 0;
 
       if (!hasMonthlyData) {
-        ctxMonth.font = '14px sans-serif';
-        ctxMonth.fillStyle = '#94a3b8';
+        ctxMonth.font = '13px sans-serif';
+        ctxMonth.fillStyle = '#64748b';
         ctxMonth.textAlign = 'center';
-        ctxMonth.fillText('Upload invoices across multiple dates to view monthly financial trends.', monthlyCanvas.width / 2, monthlyCanvas.height / 2);
+        ctxMonth.fillText('Upload invoices across dates to view monthly trends.', monthlyCanvas.width / 2, monthlyCanvas.height / 2);
       } else {
-        new Chart(ctxMonth, {
+        monthlyChartInstance = new Chart(ctxMonth, {
           type: 'bar',
           data: {
             labels: monthlyTrend.labels,
             datasets: [
               {
-                label: 'Net Subtotal ($)',
+                label: 'Subtotal (₹)',
                 data: monthlyTrend.subtotals,
-                backgroundColor: '#3b82f6',
+                backgroundColor: '#0f172a',
                 borderRadius: 4
               },
               {
-                label: 'Tax Paid (GST/VAT) ($)',
+                label: 'Tax (₹)',
                 data: monthlyTrend.taxes,
-                backgroundColor: '#10b981',
+                backgroundColor: '#3b82f6',
                 borderRadius: 4
               }
             ]
@@ -112,7 +127,7 @@ async function renderDashboardCharts() {
                 ticks: {
                   font: { size: 11 },
                   color: '#64748b',
-                  callback: (val) => `$${val}`
+                  callback: (val) => `₹${val}`
                 }
               }
             },
@@ -121,14 +136,15 @@ async function renderDashboardCharts() {
                 position: 'top',
                 align: 'end',
                 labels: {
-                  boxWidth: 12,
+                  boxWidth: 10,
+                  boxHeight: 10,
                   font: { size: 12 },
-                  color: '#475569'
+                  color: '#334155'
                 }
               },
               tooltip: {
                 callbacks: {
-                  label: (ctx) => ` ${ctx.dataset.label}: $${ctx.raw.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                  label: (ctx) => ` ${ctx.dataset.label}: ₹${ctx.raw.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
                 }
               }
             }
@@ -137,7 +153,6 @@ async function renderDashboardCharts() {
       }
     }
   } catch (err) {
-    console.error('Failed to load chart analytics:', err);
+    console.error('Failed to load chart analytics:', err.message);
   }
 }
-

@@ -7,21 +7,16 @@ function extractJsonFromAiResponse(aiText) {
   if (!aiText) return null;
 
   try {
-    // 1. Direct parse attempt
     return JSON.parse(aiText.trim());
   } catch (initialErr) {
-    // 2. Regex to strip ```json ... ``` or ``` ... ```
     const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
     const match = aiText.match(markdownRegex);
     if (match && match[1]) {
       try {
         return JSON.parse(match[1].trim());
-      } catch (e) {
-        // Continue to fallback
-      }
+      } catch (e) {}
     }
 
-    // 3. Fallback: Find outer braces { ... }
     const firstBrace = aiText.indexOf('{');
     const lastBrace = aiText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -29,15 +24,12 @@ function extractJsonFromAiResponse(aiText) {
       try {
         return JSON.parse(candidate);
       } catch (e) {
-        // Try fixing unescaped newlines or trailing commas
         const cleaned = candidate
           .replace(/,\s*}/g, '}')
           .replace(/,\s*]/g, ']');
         try {
           return JSON.parse(cleaned);
-        } catch (innerErr) {
-          console.error('[AI Service] Failed to parse JSON even after cleaning:', innerErr.message);
-        }
+        } catch (innerErr) {}
       }
     }
   }
@@ -45,12 +37,12 @@ function extractJsonFromAiResponse(aiText) {
 }
 
 /**
- * Smart Rule-based Invoice Heuristic Parser (Fallback when AI is offline or unreachable)
+ * Rule-based Invoice Heuristic Parser (Fast & accurate local extraction)
  */
 function heuristicInvoiceExtractor(rawText, existingCategories = []) {
   const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   
-  // 1. Vendor Name Heuristics (usually first 3 non-empty lines)
+  // 1. Vendor Name
   let vendorName = 'Unknown Vendor';
   for (let i = 0; i < Math.min(5, lines.length); i++) {
     const line = lines[i];
@@ -67,7 +59,7 @@ function heuristicInvoiceExtractor(rawText, existingCategories = []) {
     invoiceNumber = invMatch[1].trim();
   }
 
-  // 3. Dates (Bill Date and Due Date)
+  // 3. Dates
   let billDate = new Date().toISOString().split('T')[0];
   let dueDate = '';
   const dateMatch = rawText.match(/(?:Date|Invoice\s*Date|Bill\s*Date):?\s*([0-9]{1,4}[-/.][0-9]{1,2}[-/.][0-9]{1,4})/i);
@@ -86,9 +78,8 @@ function heuristicInvoiceExtractor(rawText, existingCategories = []) {
     }
   }
 
-  // 4. Tax Identification Number (GSTIN / VAT ID / EIN)
+  // 4. Tax Identification Number (GSTIN / VAT ID)
   let taxId = '';
-  // GSTIN 15-char regex or VAT/Tax ID
   const gstinMatch = rawText.match(/\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})\b/i);
   if (gstinMatch) {
     taxId = gstinMatch[1].toUpperCase();
@@ -99,31 +90,29 @@ function heuristicInvoiceExtractor(rawText, existingCategories = []) {
     }
   }
 
-  // 5. Financial Amounts (Subtotal, Tax, Grand Total)
+  // 5. Financial Amounts (Non-negative)
   let grandTotal = 0;
   let subtotal = 0;
   let taxAmount = 0;
 
-  // Match Grand Total specifically first (avoiding greedy match on Sub Total)
-  const grandTotalMatch = rawText.match(/(?:Grand\s*Total|Total\s*Amount|Amount\s*Due|Invoice\s*Total)\s*:?\s*[$₹€£]?\s*([0-9,]+\.?[0-9]{0,2})/i);
+  const grandTotalMatch = rawText.match(/(?:Grand\s*Total|Total\s*Amount|Amount\s*Due|Invoice\s*Total)\s*:?\s*[₹$€£]?\s*([0-9,]+\.?[0-9]{0,2})/i);
   if (grandTotalMatch && grandTotalMatch[1]) {
-    grandTotal = parseFloat(grandTotalMatch[1].replace(/,/g, '')) || 0;
+    grandTotal = Math.max(0, parseFloat(grandTotalMatch[1].replace(/,/g, '')) || 0);
   } else {
-    const fallbackTotalMatch = rawText.match(/(?:^|[^a-zA-Z])Total\s*:?\s*[$₹€£]?\s*([0-9,]+\.?[0-9]{0,2})/im);
+    const fallbackTotalMatch = rawText.match(/(?:^|[^a-zA-Z])Total\s*:?\s*[₹$€£]?\s*([0-9,]+\.?[0-9]{0,2})/im);
     if (fallbackTotalMatch && fallbackTotalMatch[1]) {
-      grandTotal = parseFloat(fallbackTotalMatch[1].replace(/,/g, '')) || 0;
+      grandTotal = Math.max(0, parseFloat(fallbackTotalMatch[1].replace(/,/g, '')) || 0);
     }
   }
 
-  const subtotalMatch = rawText.match(/(?:Sub\s*Total|Net\s*Amount|Taxable\s*Amount)\s*:?\s*[$₹€£]?\s*([0-9,]+\.?[0-9]{0,2})/i);
+  const subtotalMatch = rawText.match(/(?:Sub\s*Total|Net\s*Amount|Taxable\s*Amount)\s*:?\s*[₹$€£]?\s*([0-9,]+\.?[0-9]{0,2})/i);
   if (subtotalMatch && subtotalMatch[1]) {
-    subtotal = parseFloat(subtotalMatch[1].replace(/,/g, '')) || 0;
+    subtotal = Math.max(0, parseFloat(subtotalMatch[1].replace(/,/g, '')) || 0);
   }
 
-  // Matches "GST Tax (18%): $153.00", "Total Tax: $50", "VAT: $20", etc.
-  const taxMatch2 = rawText.match(/(?:Total\s*Tax|Tax\s*Amount|GST(?:\s*Tax)?|VAT|CGST\s*\+\s*SGST)(?:\s*\([^)]*\))?\s*:?\s*[$₹€£]?\s*([0-9,]+\.?[0-9]{0,2})/i);
+  const taxMatch2 = rawText.match(/(?:Total\s*Tax|Tax\s*Amount|GST(?:\s*Tax)?|VAT|CGST\s*\+\s*SGST)(?:\s*\([^)]*\))?\s*:?\s*[₹$€£]?\s*([0-9,]+\.?[0-9]{0,2})/i);
   if (taxMatch2 && taxMatch2[1]) {
-    taxAmount = parseFloat(taxMatch2[1].replace(/,/g, '')) || 0;
+    taxAmount = Math.max(0, parseFloat(taxMatch2[1].replace(/,/g, '')) || 0);
   }
 
   if (grandTotal > 0 && subtotal === 0 && taxAmount > 0) {
@@ -149,7 +138,7 @@ function heuristicInvoiceExtractor(rawText, existingCategories = []) {
     'Software & Cloud': ['software', 'cloud', 'aws', 'amazon web services', 'azure', 'google cloud', 'github', 'saas', 'subscription', 'domain', 'hosting', 'jira', 'slack', 'license'],
     'Office Supplies': ['stationery', 'paper', 'staples', 'desk', 'chair', 'pen', 'notebook', 'furniture', 'office depot'],
     'Travel & Lodging': ['flight', 'airline', 'hotel', 'uber', 'lyft', 'taxi', 'railway', 'train', 'airbnb', 'boarding pass', 'lodging'],
-    'Utilities & Bills': ['electricity', 'water', 'internet', 'broadband', 'telecom', 'phone', 'verizon', 'at&t', 'power'],
+    'Utilities & Bills': ['electricity', 'water', 'internet', 'broadband', 'telecom', 'phone', 'airtel', 'jio', 'power'],
     'Legal & Professional': ['audit', 'consulting', 'legal', 'attorney', 'retainer', 'accounting', 'advisory'],
     'Meals & Entertainment': ['restaurant', 'cafe', 'food', 'dinner', 'lunch', 'starbucks', 'coffee', 'meal', 'catering']
   };
@@ -169,7 +158,7 @@ function heuristicInvoiceExtractor(rawText, existingCategories = []) {
     dueDate: dueDate || billDate,
     itemizedCosts: [
       {
-        description: 'Invoice Total Line Item',
+        description: 'Line item charge',
         quantity: 1,
         unitPrice: subtotal || grandTotal,
         amount: subtotal || grandTotal
@@ -181,16 +170,12 @@ function heuristicInvoiceExtractor(rawText, existingCategories = []) {
     taxId,
     vendorAddress: '',
     suggestedCategory,
-    paymentStatus,
-    parsedVia: 'rule-based-heuristic-engine'
+    paymentStatus
   };
 }
 
-/**
- * System Prompt instructing the AI to output strictly structured JSON
- */
 const INVOICE_PARSER_SYSTEM_PROMPT = `
-You are an expert Tax and Financial Audit AI. Extract all bill/invoice information from the provided raw OCR text.
+You are an expert Tax and Financial Audit assistant. Extract all bill/invoice information from the provided raw OCR text.
 Output MUST be a single raw JSON object matching this schema exactly without any extra markdown or conversational text:
 
 {
@@ -220,9 +205,9 @@ Output MUST be a single raw JSON object matching this schema exactly without any
 /**
  * Calls Ollama REST API
  */
-async function callOllama(prompt, systemPrompt, settings) {
-  const baseUrl = settings.ollamaBaseUrl || 'http://localhost:11434';
-  const model = settings.ollamaModel || 'llama3';
+async function callOllama(prompt, systemPrompt) {
+  const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  const model = process.env.OLLAMA_MODEL || 'llama3';
 
   const response = await fetch(`${baseUrl}/api/generate`, {
     method: 'POST',
@@ -233,11 +218,11 @@ async function callOllama(prompt, systemPrompt, settings) {
       stream: false,
       format: 'json'
     }),
-    signal: AbortSignal.timeout(25000)
+    signal: AbortSignal.timeout(15000)
   });
 
   if (!response.ok) {
-    throw new Error(`Ollama request failed with HTTP ${response.status}: ${response.statusText}`);
+    throw new Error(`Ollama returned status ${response.status}`);
   }
 
   const data = await response.json();
@@ -248,7 +233,10 @@ async function callOllama(prompt, systemPrompt, settings) {
  * Calls Google Gemini REST API
  */
 async function callGemini(prompt, systemPrompt, apiKey) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const key = apiKey || process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('No Gemini API key available');
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
   
   const payload = {
     contents: [
@@ -268,12 +256,11 @@ async function callGemini(prompt, systemPrompt, apiKey) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(20000)
+    signal: AbortSignal.timeout(15000)
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${errText}`);
+    throw new Error('Gemini API call failed');
   }
 
   const data = await response.json();
@@ -281,107 +268,41 @@ async function callGemini(prompt, systemPrompt, apiKey) {
 }
 
 /**
- * Calls OpenAI REST API
- */
-async function callOpenAI(prompt, systemPrompt, apiKey) {
-  const url = 'https://api.openai.com/v1/chat/completions';
-
-  const payload = {
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Invoice OCR Text:\n${prompt}` }
-    ],
-    temperature: 0.1,
-    response_format: { type: "json_object" }
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(20000)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`OpenAI API error ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content;
-}
-
-/**
  * Main AI Invoice Parsing Pipeline:
- * Priority: Configured Provider -> Ollama -> Heuristic Engine Fallback
  */
 async function parseInvoiceText(rawText, userAiSettings = {}, existingCategories = []) {
-  const provider = userAiSettings.preferredProvider || 'ollama';
-  let aiRawResponse = null;
   let parsedJson = null;
-  let parsingEngineUsed = 'heuristic';
 
-  // Attempt Cloud AI if configured
-  if (provider === 'gemini') {
-    const geminiKey = customCrypto.decrypt(userAiSettings.geminiApiKeyEncrypted);
-    if (geminiKey) {
-      try {
-        console.log('[AI Service] Routing to Gemini API...');
-        aiRawResponse = await callGemini(rawText, INVOICE_PARSER_SYSTEM_PROMPT, geminiKey);
-        parsedJson = extractJsonFromAiResponse(aiRawResponse);
-        if (parsedJson) parsingEngineUsed = 'gemini';
-      } catch (err) {
-        console.warn('[AI Service] Gemini API failed:', err.message, '- Falling back to Ollama / Heuristic...');
-      }
-    } else {
-      console.warn('[AI Service] Gemini preferred but no API key configured. Trying Ollama...');
-    }
-  } else if (provider === 'openai') {
-    const openAiKey = customCrypto.decrypt(userAiSettings.openAiApiKeyEncrypted);
-    if (openAiKey) {
-      try {
-        console.log('[AI Service] Routing to OpenAI API...');
-        aiRawResponse = await callOpenAI(rawText, INVOICE_PARSER_SYSTEM_PROMPT, openAiKey);
-        parsedJson = extractJsonFromAiResponse(aiRawResponse);
-        if (parsedJson) parsingEngineUsed = 'openai';
-      } catch (err) {
-        console.warn('[AI Service] OpenAI API failed:', err.message, '- Falling back to Ollama / Heuristic...');
-      }
-    } else {
-      console.warn('[AI Service] OpenAI preferred but no API key configured. Trying Ollama...');
-    }
+  // 1. Try Gemini if configured in environment
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const resp = await callGemini(rawText, INVOICE_PARSER_SYSTEM_PROMPT, process.env.GEMINI_API_KEY);
+      parsedJson = extractJsonFromAiResponse(resp);
+    } catch (err) {}
   }
 
-  // Attempt Ollama if Cloud AI wasn't used or failed
+  // 2. Try Ollama local
   if (!parsedJson) {
     try {
-      console.log('[AI Service] Routing to local Ollama API...');
-      aiRawResponse = await callOllama(rawText, INVOICE_PARSER_SYSTEM_PROMPT, userAiSettings);
-      parsedJson = extractJsonFromAiResponse(aiRawResponse);
-      if (parsedJson) parsingEngineUsed = 'ollama';
-    } catch (ollamaErr) {
-      console.warn('[AI Service] Ollama unreachable or failed:', ollamaErr.message);
-    }
+      const resp = await callOllama(rawText, INVOICE_PARSER_SYSTEM_PROMPT);
+      parsedJson = extractJsonFromAiResponse(resp);
+    } catch (ollamaErr) {}
   }
 
-  // Fallback to Rule-based Heuristic Engine
+  // 3. Fallback to Rule-based Heuristic Engine
   if (!parsedJson) {
-    console.log('[AI Service] Using Rule-based Heuristic Parser fallback...');
     parsedJson = heuristicInvoiceExtractor(rawText, existingCategories);
-    parsingEngineUsed = 'rule-based-heuristic';
   }
 
-  // Sanitize and validate numeric values
-  const subtotal = Math.abs(parseFloat(parsedJson.subtotal) || 0);
-  const taxAmount = Math.abs(parseFloat(parsedJson.taxAmount) || 0);
-  let grandTotal = Math.abs(parseFloat(parsedJson.grandTotal) || 0);
+  // Sanitize non-negative values
+  const subtotal = Math.max(0, Math.abs(parseFloat(parsedJson.subtotal) || 0));
+  const taxAmount = Math.max(0, Math.abs(parseFloat(parsedJson.taxAmount) || 0));
+  let grandTotal = Math.max(0, Math.abs(parseFloat(parsedJson.grandTotal) || 0));
 
   if (grandTotal === 0 && (subtotal > 0 || taxAmount > 0)) {
     grandTotal = parseFloat((subtotal + taxAmount).toFixed(2));
+  } else if (subtotal === 0 && grandTotal > 0 && taxAmount > 0) {
+    subtotal = Math.max(0, parseFloat((grandTotal - taxAmount).toFixed(2)));
   }
 
   return {
@@ -393,9 +314,9 @@ async function parseInvoiceText(rawText, userAiSettings = {}, existingCategories
     itemizedCosts: Array.isArray(parsedJson.itemizedCosts) && parsedJson.itemizedCosts.length > 0 
       ? parsedJson.itemizedCosts.map(item => ({
           description: item.description || 'Line item',
-          quantity: parseFloat(item.quantity) || 1,
-          unitPrice: parseFloat(item.unitPrice) || 0,
-          amount: parseFloat(item.amount) || 0
+          quantity: Math.max(1, Math.abs(parseFloat(item.quantity) || 1)),
+          unitPrice: Math.max(0, Math.abs(parseFloat(item.unitPrice) || 0)),
+          amount: Math.max(0, Math.abs(parseFloat(item.amount) || 0))
         }))
       : [{ description: 'Total Charge', quantity: 1, unitPrice: subtotal || grandTotal, amount: subtotal || grandTotal }],
     subtotal: parseFloat(subtotal.toFixed(2)),
@@ -406,97 +327,47 @@ async function parseInvoiceText(rawText, userAiSettings = {}, existingCategories
     suggestedCategory: (parsedJson.suggestedCategory || 'General / Miscellaneous').trim(),
     paymentStatus: (parsedJson.paymentStatus && ['Paid', 'Due'].includes(parsedJson.paymentStatus)) 
       ? parsedJson.paymentStatus 
-      : 'Due',
-    parsingEngineUsed,
-    rawAiResponse: aiRawResponse
+      : 'Due'
   };
 }
 
 /**
- * Ask Your Bills RAG Chat: Answers user questions based on stored bill metadata
+ * Ask Your Bills RAG Chat: Answers user questions based on stored bill metadata in ₹
  */
-async function askBillsRag(userQuery, billsContext = [], userAiSettings = {}) {
-  const provider = userAiSettings.preferredProvider || 'ollama';
-
-  // Format compact bill metadata context
+async function askBillsRag(userQuery, billsContext = []) {
   const billsSummaryText = billsContext.map((b, i) => {
     const dateStr = b.billDate ? new Date(b.billDate).toISOString().split('T')[0] : 'N/A';
     const dueStr = b.dueDate ? new Date(b.dueDate).toISOString().split('T')[0] : 'N/A';
     return `[Bill #${i + 1}]
 - Vendor: ${b.vendorName}
-- Firm / Client: ${b.firmName || 'None'}
 - Invoice #: ${b.invoiceNumber || 'N/A'}
 - Category: ${b.categoryName || 'General'}
 - Date: ${dateStr} (Due: ${dueStr})
-- Subtotal: $${b.subtotal.toFixed(2)} | Tax Paid: $${b.taxAmount.toFixed(2)} | Grand Total: $${b.grandTotal.toFixed(2)}
-- Tax ID (GST/VAT): ${b.taxId || 'Missing'}
-- Status: ${b.paymentStatus}
-- Audit Flags: Math Discrepancy=${b.auditFlags?.mathDiscrepancy ? 'YES' : 'NO'}, Duplicate=${b.auditFlags?.duplicateReceipt ? 'YES' : 'NO'}
-- Notes: ${(b.notes || []).map(n => n.text).join('; ') || 'None'}`;
+- Subtotal: ₹${b.subtotal.toFixed(2)} | Tax: ₹${b.taxAmount.toFixed(2)} | Grand Total: ₹${b.grandTotal.toFixed(2)}
+- Tax ID: ${b.taxId || 'Not specified'}
+- Status: ${b.paymentStatus}`;
   }).join('\n\n');
 
-  const systemPrompt = `You are an expert Tax and Financial Audit Assistant named "AuditAI".
-You have direct read access to the user's verified bills and tax records.
-Answer the user's audit/tax question accurately, citing specific invoice numbers, dates, vendor names, and exact tax or total dollar amounts.
-If the information is not in the records, state that clearly. Be professional, concise, and helpful.
+  const systemPrompt = `You are a helpful Financial Assistant.
+Answer the user's question clearly and concisely using the provided invoice records. Always format monetary values in Indian Rupees (₹).
+Do not output technical jargon or internal error details.
 
-CURRENT AUDIT BILLS DATABASE (${billsContext.length} Records):
+INVOICE RECORDS (${billsContext.length} Records):
 ${billsSummaryText || 'No bills uploaded yet.'}
 `;
 
   // 1. Try Gemini
-  if (provider === 'gemini') {
-    const key = customCrypto.decrypt(userAiSettings.geminiApiKeyEncrypted);
-    if (key) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `${systemPrompt}\n\nUser Question: ${userQuery}` }] }]
-          })
-        });
-        if (resp.ok) {
-          const d = await resp.json();
-          return d.candidates?.[0]?.content?.parts?.[0]?.text;
-        }
-      } catch (err) {
-        console.warn('[RAG Chat] Gemini error:', err.message);
-      }
-    }
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const resp = await callGemini(userQuery, systemPrompt, process.env.GEMINI_API_KEY);
+      if (resp) return resp;
+    } catch (e) {}
   }
 
-  // 2. Try OpenAI
-  if (provider === 'openai') {
-    const key = customCrypto.decrypt(userAiSettings.openAiApiKeyEncrypted);
-    if (key) {
-      try {
-        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userQuery }
-            ]
-          })
-        });
-        if (resp.ok) {
-          const d = await resp.json();
-          return d.choices?.[0]?.message?.content;
-        }
-      } catch (err) {
-        console.warn('[RAG Chat] OpenAI error:', err.message);
-      }
-    }
-  }
-
-  // 3. Try Ollama
+  // 2. Try Ollama
   try {
-    const baseUrl = userAiSettings.ollamaBaseUrl || 'http://localhost:11434';
-    const model = userAiSettings.ollamaModel || 'llama3';
+    const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const model = process.env.OLLAMA_MODEL || 'llama3';
     const resp = await fetch(`${baseUrl}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -505,29 +376,24 @@ ${billsSummaryText || 'No bills uploaded yet.'}
         prompt: `${systemPrompt}\n\nUser Question: ${userQuery}`,
         stream: false
       }),
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(15000)
     });
     if (resp.ok) {
       const d = await resp.json();
       return d.response;
     }
-  } catch (err) {
-    console.warn('[RAG Chat] Ollama unreachable:', err.message);
-  }
+  } catch (err) {}
 
-  // 4. Intelligent Local Audit Engine Fallback
-  // Compute basic stats to answer standard questions (e.g. tax in hardware, total spend, due bills)
+  // 3. Clean Statistical Fallback
   const queryLower = userQuery.toLowerCase();
   let matchedBills = billsContext;
 
-  // Filter by category if mentioned
   const categories = ['hardware', 'software', 'cloud', 'office', 'travel', 'utilities', 'legal', 'meals'];
   const matchedCat = categories.find(c => queryLower.includes(c));
   if (matchedCat) {
     matchedBills = matchedBills.filter(b => (b.categoryName || '').toLowerCase().includes(matchedCat));
   }
 
-  // Filter by status if mentioned
   if (queryLower.includes('due') || queryLower.includes('pending') || queryLower.includes('unpaid')) {
     matchedBills = matchedBills.filter(b => b.paymentStatus === 'Due');
   } else if (queryLower.includes('paid')) {
@@ -537,15 +403,12 @@ ${billsSummaryText || 'No bills uploaded yet.'}
   const totalAmount = matchedBills.reduce((acc, b) => acc + (b.grandTotal || 0), 0);
   const totalTax = matchedBills.reduce((acc, b) => acc + (b.taxAmount || 0), 0);
 
-  return `📊 **Local Audit Engine Summary:**
-Based on your ${billsContext.length} uploaded records:
-- **Matching Invoices Found:** ${matchedBills.length}
-- **Total Expenditure:** $${totalAmount.toFixed(2)}
-- **Total Tax (GST/VAT) Paid:** $${totalTax.toFixed(2)}
+  return `Based on your records (${matchedBills.length} matching invoices):
+• Total Expenditure: ₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+• Total Tax (GST/VAT): ₹${totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
 
-${matchedBills.slice(0, 5).map(b => `• **${b.vendorName}** (Inv #${b.invoiceNumber || 'N/A'}): Total $${b.grandTotal.toFixed(2)}, Tax $${b.taxAmount.toFixed(2)} [Status: ${b.paymentStatus}]`).join('\n')}
-
-*(Tip: To enable full conversational AI reasoning, start Ollama locally or enter your Gemini/OpenAI API key in [Settings](/settings).)*`;
+Recent matching invoices:
+${matchedBills.slice(0, 5).map(b => `• ${b.vendorName} (Inv #${b.invoiceNumber || 'N/A'}): ₹${b.grandTotal.toFixed(2)} [${b.paymentStatus}]`).join('\n')}`;
 }
 
 module.exports = {

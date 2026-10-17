@@ -1,0 +1,186 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<div class="container" style="max-width: 980px; margin: 2rem auto;">
+  <!-- Profile Header Banner -->
+  <div class="page-header" style="margin-bottom: 2rem;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <h1 class="page-title"><%= user.formattedName || user.name %></h1>
+        <span class="badge badge-paid">Verified Account</span>
+      </div>
+      <p class="page-subtitle">Manage your account profile, credentials, and review automated audit activity.</p>
+    </div>
+    <div class="header-actions">
+      <a href="/logout" class="btn btn-secondary btn-sm" title="Sign Out of Session">
+        Sign Out
+      </a>
+    </div>
+  </div>
+
+  <% if (typeof success !== 'undefined' && success) { %>
+    <div class="alert alert-success" style="margin-bottom: 1.5rem;">
+      <%= success %>
+    </div>
+  <% } %>
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-error" style="margin-bottom: 1.5rem;">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <!-- Account Activity Summary Cards -->
+  <div class="kpi-grid" style="margin-bottom: 2rem;">
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-title">Total Bills Uploaded</span>
+      </div>
+      <div class="kpi-value"><%= stats.totalBills || 0 %></div>
+      <div class="kpi-subtitle">Processed invoices in database</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-title">Total Tax Audited</span>
+      </div>
+      <div class="kpi-value">₹<%= (stats.totalTaxAudited || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) %></div>
+      <div class="kpi-subtitle">Input Tax Credit (GST/VAT)</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-header">
+        <span class="kpi-title">Total Amount Processed</span>
+      </div>
+      <div class="kpi-value">₹<%= (stats.totalAmountProcessed || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) %></div>
+      <div class="kpi-subtitle">Total cumulative bill value</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.5rem;">
+    <!-- Profile Information Card -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Profile Information</h3>
+      </div>
+      <div class="card-body" style="padding: 1.75rem;">
+        <form id="profile-details-form" action="/profile" method="POST">
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" for="profileName">Full Name</label>
+            <input 
+              type="text" 
+              id="profileName" 
+              name="name" 
+              class="form-control" 
+              value="<%= user.name %>" 
+              required 
+              placeholder="e.g. Meet Kumar"
+            >
+            <small style="color: var(--text-muted); display: block; margin-top: 0.35rem; font-size: 0.8rem;">
+              Auditor display name: <strong><%= user.formattedName || user.name %></strong>
+            </small>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" for="profileEmail">Email Address</label>
+            <input 
+              type="email" 
+              id="profileEmail" 
+              name="email" 
+              class="form-control" 
+              value="<%= user.email %>" 
+              required 
+              placeholder="user@example.com"
+            >
+            <small style="color: var(--text-muted); display: block; margin-top: 0.35rem; font-size: 0.8rem;">
+              Used for Gmail OTP verification and payment reminders.
+            </small>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0;" />
+
+          <div style="margin-bottom: 1.5rem;">
+            <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.35rem;">
+              Automated Reminders
+            </h4>
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.5rem;">
+              <input 
+                type="checkbox" 
+                id="emailAlertsEnabled" 
+                name="emailAlertsEnabled" 
+                value="true" 
+                <%= user.emailAlertsEnabled !== false ? 'checked' : '' %> 
+                style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer;"
+              >
+              <label for="emailAlertsEnabled" style="font-size: 0.875rem; cursor: pointer; color: var(--text-main); line-height: 1.4;">
+                Send email reminders 3 days before an invoice due date.
+              </label>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" id="btn-save-profile" class="btn btn-primary" style="padding: 0.65rem 1.75rem;">
+              Save Profile
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Security & Password Change Card -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Security & Password</h3>
+      </div>
+      <div class="card-body" style="padding: 1.75rem;">
+        <form id="password-change-form">
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" for="currentPassword">Current Password</label>
+            <input 
+              type="password" 
+              id="currentPassword" 
+              name="currentPassword" 
+              class="form-control" 
+              required 
+              placeholder="Enter your existing password"
+            >
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" for="newPassword">New Password</label>
+            <input 
+              type="password" 
+              id="newPassword" 
+              name="newPassword" 
+              class="form-control" 
+              minlength="6" 
+              required 
+              placeholder="Minimum 6 characters"
+            >
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label class="form-label" for="confirmPassword">Confirm New Password</label>
+            <input 
+              type="password" 
+              id="confirmPassword" 
+              name="confirmPassword" 
+              class="form-control" 
+              minlength="6" 
+              required 
+              placeholder="Re-type new password"
+            >
+          </div>
+
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" id="btn-change-password" class="btn btn-secondary" style="padding: 0.65rem 1.75rem;">
+              Update Password
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
+

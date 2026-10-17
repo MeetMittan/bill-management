@@ -1,35 +1,32 @@
 <%- include('partials/header') %>
 <%- include('partials/navbar') %>
 
-<div class="container" style="max-width: 960px;">
+<div class="container" style="max-width: 900px;">
   <div class="page-header">
     <div>
-      <h1 class="page-title">💬 "Ask Your Bills" Natural Language Local RAG Chat</h1>
-      <p class="page-subtitle">Query your uploaded invoices, tax amounts, vendor expenditures, and payment statuses using conversational AI.</p>
+      <h1 class="page-title">Ask Your Bills</h1>
+      <p class="page-subtitle">Ask questions about your uploaded invoices, taxes, vendors, and expenses in plain English.</p>
     </div>
     <div>
       <span class="badge badge-info">
-        RAG Database: <%= billsCount %> Invoices Loaded
+        <%= billsCount %> Invoices Indexed
       </span>
     </div>
   </div>
 
   <!-- Prompt Pills for Instant Audit Queries -->
   <div class="prompt-pills">
-    <button class="prompt-pill" onclick="sendPrompt('How much total tax (GST/VAT) have I paid so far across all bills?')">
-      💡 "How much total tax have I paid so far?"
+    <button type="button" class="prompt-pill" onclick="sendPrompt('How much total tax have I paid so far across all bills?')">
+      "How much total tax have I paid so far?"
     </button>
-    <button class="prompt-pill" onclick="sendPrompt('Which bills are currently unpaid or overdue?')">
-      ⏳ "Which bills are currently unpaid or overdue?"
+    <button type="button" class="prompt-pill" onclick="sendPrompt('Which bills are currently unpaid or due?')">
+      "Which bills are currently unpaid or due?"
     </button>
-    <button class="prompt-pill" onclick="sendPrompt('How much did I spend on Hardware vs Software?')">
-      💻 "How much did I spend on Hardware vs Software?"
+    <button type="button" class="prompt-pill" onclick="sendPrompt('How much have I spent on each category?')">
+      "How much have I spent on each category?"
     </button>
-    <button class="prompt-pill" onclick="sendPrompt('List all invoices that have math calculation discrepancies.')">
-      🔴 "List all invoices with math calculation errors."
-    </button>
-    <button class="prompt-pill" onclick="sendPrompt('What are the top 3 highest expenditure invoices?')">
-      🏆 "What are the top 3 highest expenditure invoices?"
+    <button type="button" class="prompt-pill" onclick="sendPrompt('What are my top 3 highest expense bills?')">
+      "What are my top 3 highest expense bills?"
     </button>
   </div>
 
@@ -37,22 +34,25 @@
   <div class="chat-container">
     <div id="chat-messages" class="chat-messages">
       <div class="chat-bubble assistant">
-        <strong>🤖 AuditAI:</strong>
-        <p style="margin-top: 0.4rem;">
-          Hello! I have loaded your <%= billsCount %> uploaded invoices and tax records into memory.
-          You can ask me anything about your expenditures, specific vendor payments, input tax credits (GST/VAT), or audit discrepancies.
+        <strong>Assistant:</strong>
+        <p style="margin-top: 0.35rem; line-height: 1.5;">
+          Hello! I have indexed your <%= billsCount %> uploaded bills. You can ask me any question about your spending totals, tax credits, vendor charges, or due dates.
         </p>
-        <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
-          AI Mode: <strong><%= preferredProvider.toUpperCase() %></strong> &bull; RAG Context: Active
-        </small>
       </div>
     </div>
 
     <!-- Input Form -->
     <form id="chat-form" class="chat-input-area">
-      <input type="text" id="chat-input" class="form-control" placeholder="Ask a question about your bills (e.g., 'How much tax did I pay on hardware in September?')..." autocomplete="off" required>
+      <input 
+        type="text" 
+        id="chat-input" 
+        class="form-control" 
+        placeholder="Ask a question about your bills (e.g. 'How much did I spend this month?')..." 
+        autocomplete="off" 
+        required
+      >
       <button type="submit" id="chat-submit-btn" class="btn btn-primary" style="padding: 0 1.5rem;">
-        Send 🚀
+        Send
       </button>
     </form>
   </div>
@@ -64,6 +64,18 @@
   const chatInput = document.getElementById('chat-input');
   const chatSubmitBtn = document.getElementById('chat-submit-btn');
 
+  function scrollToBottom() {
+    requestAnimationFrame(() => {
+      chatMessages.scrollTo({
+        top: chatMessages.scrollHeight,
+        behavior: 'smooth'
+      });
+      setTimeout(() => {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }, 100);
+    });
+  }
+
   function appendMessage(sender, text, isUser = false) {
     const bubble = document.createElement('div');
     bubble.className = `chat-bubble ${isUser ? 'user' : 'assistant'}`;
@@ -71,16 +83,15 @@
     if (isUser) {
       bubble.textContent = text;
     } else {
-      bubble.innerHTML = `<strong>🤖 AuditAI:</strong><div style="margin-top: 0.35rem; white-space: pre-line;">${formatMarkdown(text)}</div>`;
+      bubble.innerHTML = `<strong>Assistant:</strong><div style="margin-top: 0.35rem; line-height: 1.5; white-space: pre-line;">${formatMarkdown(text)}</div>`;
     }
 
     chatMessages.appendChild(bubble);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    scrollToBottom();
     return bubble;
   }
 
   function formatMarkdown(text) {
-    // Quick sanitizing and formatting bold and bullet points
     return text
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
@@ -102,7 +113,7 @@
     chatSubmitBtn.disabled = true;
 
     // Loading indicator
-    const loadingBubble = appendMessage('AuditAI', 'Analyzing verified invoice metadata and computing audit figures...');
+    const loadingBubble = appendMessage('Assistant', 'Analyzing your bills...');
 
     try {
       const response = await fetch('/api/chat/ask', {
@@ -115,19 +126,19 @@
       loadingBubble.remove();
 
       if (data.success) {
-        appendMessage('AuditAI', data.answer);
+        appendMessage('Assistant', data.answer);
       } else {
-        appendMessage('AuditAI', `⚠️ Error: ${data.message || 'Could not process query'}`);
+        appendMessage('Assistant', data.message || 'Unable to analyze bills for this question.');
       }
     } catch (err) {
       loadingBubble.remove();
-      appendMessage('AuditAI', `❌ Network error while communicating with AI service: ${err.message}`);
+      appendMessage('Assistant', 'Unable to reach the assistant right now. Please check your connection and try again.');
     } finally {
       chatSubmitBtn.disabled = false;
       chatInput.focus();
+      scrollToBottom();
     }
   });
 </script>
 
 <%- include('partials/footer') %>
-

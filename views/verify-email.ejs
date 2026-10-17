@@ -1,0 +1,126 @@
+<%- include('partials/header') %>
+
+<div class="auth-container">
+  <div class="card auth-card" style="max-width: 440px;">
+    <div class="card-header auth-card-header" style="text-align: center; align-items: center;">
+      <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--dark); margin: 0;">Verify Your Email</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.35rem; text-align: center;">
+        <% if (typeof userEmail !== 'undefined' && userEmail) { %>
+          We sent a 6-digit verification code to<br>
+          <strong><%= userEmail %></strong>
+        <% } else { %>
+          Please enter your email address and 6-digit verification code:
+        <% } %>
+      </p>
+    </div>
+
+    <div class="card-body auth-card-body" style="padding: 1.75rem;">
+      <% if (typeof error !== 'undefined' && error) { %>
+        <div style="background-color: var(--danger-light); border: 1px solid var(--danger-border); color: #991b1b; padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.875rem; text-align: center;">
+          <%= error %>
+        </div>
+      <% } %>
+
+      <% if (typeof hasSmtpConfigured !== 'undefined' && !hasSmtpConfigured) { %>
+        <div style="background-color: #fef3c7; border: 1px solid #fde68a; color: #92400e; padding: 0.85rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.825rem; text-align: left; line-height: 1.45;">
+          <strong>Gmail SMTP Not Configured in .env</strong><br>
+          To receive real OTP emails in your inbox, set your credentials in <code>.env</code>:
+          <div style="background: rgba(0,0,0,0.05); padding: 0.4rem 0.6rem; border-radius: 4px; margin-top: 0.4rem; font-family: monospace; font-size: 0.8rem;">
+            EMAIL_USER=your_email@gmail.com<br>
+            EMAIL_PASS=your_16_char_app_password
+          </div>
+          <div style="margin-top: 0.35rem; font-size: 0.775rem; color: #78350f;">
+            Need a Gmail App Password? Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color: #92400e; font-weight: 600; text-decoration: underline;">Google Account &rarr; App Passwords</a>.
+          </div>
+        </div>
+      <% } %>
+
+      <% if (typeof devOtp !== 'undefined' && devOtp) { %>
+        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.85rem; text-align: center;">
+          <strong>Local Dev Test OTP:</strong> <span style="font-family: monospace; font-weight: 700; font-size: 1.15rem; letter-spacing: 2px;"><%= devOtp %></span>
+          <small style="display: block; color: #3b82f6; margin-top: 0.2rem;">(Available only while EMAIL_USER is not configured in .env)</small>
+        </div>
+      <% } %>
+
+      <form action="/verify-otp" method="POST">
+        <% if (typeof userEmail !== 'undefined' && userEmail) { %>
+          <input type="hidden" id="verifyEmailInput" name="email" value="<%= userEmail %>">
+        <% } else { %>
+          <div class="form-group" style="text-align: left; margin-bottom: 1.25rem;">
+            <label class="form-label" for="verifyEmailInput">Email Address</label>
+            <input type="email" id="verifyEmailInput" name="email" class="form-control" placeholder="user@example.com" required autofocus>
+          </div>
+        <% } %>
+        <div class="form-group" style="text-align: center;">
+          <label class="form-label" for="otp" style="margin-bottom: 0.75rem;">Enter 6-Digit Code</label>
+          <input 
+            type="text" 
+            id="otp" 
+            name="otp" 
+            class="form-control" 
+            placeholder="123456" 
+            maxlength="6" 
+            pattern="[0-9]{6}" 
+            inputmode="numeric" 
+            required 
+            autofocus
+            style="text-align: center; font-size: 1.75rem; letter-spacing: 0.35em; font-family: monospace; font-weight: 700; padding: 0.75rem;"
+          >
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem; margin-top: 0.5rem;">
+          Verify & Continue
+        </button>
+      </form>
+
+      <div style="margin-top: 1.5rem; text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+        Didn't receive the code? 
+        <button id="resendOtpBtn" type="button" style="background: none; border: none; color: var(--secondary); font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; font-size: 0.85rem;">
+          Resend Code
+        </button>
+      </div>
+
+      <div style="margin-top: 1.25rem; text-align: center; font-size: 0.8rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
+        <a href="/logout" style="color: var(--text-muted); text-decoration: none;">Sign out and use another email</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const resendBtn = document.getElementById('resendOtpBtn');
+  if (resendBtn) {
+    resendBtn.addEventListener('click', async () => {
+      resendBtn.disabled = true;
+      resendBtn.textContent = 'Sending...';
+      try {
+        const emailVal = document.getElementById('verifyEmailInput')?.value || '<%= typeof userEmail !== "undefined" ? userEmail : "" %>';
+        const res = await fetch('/api/auth/resend-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailVal })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (window.showToast) window.showToast(data.message, 'success');
+          resendBtn.textContent = 'Code Sent';
+          setTimeout(() => {
+            resendBtn.disabled = false;
+            resendBtn.textContent = 'Resend Code';
+          }, 30000);
+        } else {
+          if (window.showToast) window.showToast(data.message || 'Could not send code', 'error');
+          resendBtn.disabled = false;
+          resendBtn.textContent = 'Resend Code';
+        }
+      } catch (err) {
+        if (window.showToast) window.showToast('Network error while resending code', 'error');
+        resendBtn.disabled = false;
+        resendBtn.textContent = 'Resend Code';
+      }
+    });
+  }
+</script>
+
+<%- include('partials/footer') %>
+

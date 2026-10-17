@@ -22,15 +22,12 @@ function generateBillsCSV(bills = []) {
     'Bill Date',
     'Due Date',
     'Tax Registration (GSTIN/VAT)',
-    'Subtotal',
-    'Tax Amount',
-    'Grand Total',
+    'Subtotal (₹)',
+    'Tax Amount (₹)',
+    'Grand Total (₹)',
     'Payment Status',
-    'Math Discrepancy',
     'Duplicate Flag',
     'Missing Tax ID',
-    'Needs Manual Review',
-    'Audit Notes Count',
     'Created At'
   ];
 
@@ -46,11 +43,8 @@ function generateBillsCSV(bills = []) {
     (b.taxAmount || 0).toFixed(2),
     (b.grandTotal || 0).toFixed(2),
     escapeCSV(b.paymentStatus),
-    b.auditFlags?.mathDiscrepancy ? 'YES' : 'NO',
     b.auditFlags?.duplicateReceipt ? 'YES' : 'NO',
     b.auditFlags?.missingTaxId ? 'YES' : 'NO',
-    b.auditFlags?.needsManualReview ? 'YES' : 'NO',
-    b.notes ? b.notes.length : 0,
     escapeCSV(b.createdAt ? new Date(b.createdAt).toISOString() : '')
   ]);
 
@@ -64,11 +58,11 @@ function generateCategorySummaryCSV(categoryStats = []) {
   const headers = [
     'Category Name',
     'Total Invoices',
-    'Total Subtotal',
-    'Total Tax (GST/VAT)',
-    'Grand Total Spend',
-    'Paid Amount',
-    'Due Amount'
+    'Total Subtotal (₹)',
+    'Total Tax (₹)',
+    'Grand Total Spend (₹)',
+    'Paid Amount (₹)',
+    'Due Amount (₹)'
   ];
 
   const rows = categoryStats.map(c => [
@@ -88,4 +82,3 @@ module.exports = {
   generateBillsCSV,
   generateCategorySummaryCSV
 };
-

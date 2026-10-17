@@ -12,9 +12,8 @@ const customCrypto = require('../config/customCrypto');
 async function showUpload(req, res) {
   const categories = await Category.find({ user: req.user._id }).sort({ name: 1 });
   res.render('upload', {
-    title: 'Smart Bill Upload & AI Extraction | Audit Manager',
-    categories,
-    preferredProvider: req.user.aiSettings?.preferredProvider || 'ollama'
+    title: 'Upload Invoice',
+    categories
   });
 }
 
@@ -23,15 +22,16 @@ async function showUpload(req, res) {
  * POST /api/bills/upload
  */
 async function uploadBill(req, res) {
+  let filePath = '';
   try {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No file uploaded. Please select a valid invoice (PDF, PNG, JPG).'
+        message: 'Please select a valid invoice file (PDF, PNG, JPG).'
       });
     }
 
-    const filePath = req.file.path;
+    filePath = req.file.path;
     const originalFileName = req.file.originalname;
     const fileMimeType = req.file.mimetype;
     const fileSize = req.file.size;
@@ -44,22 +44,19 @@ async function uploadBill(req, res) {
     const duplicateByHash = await Bill.findOne({ user: req.user._id, fileHash: fileHash });
 
     // 2. OCR Text Extraction (Tesseract.js for images, PDFParse for PDFs)
-    console.log(`[Upload Pipeline] Extracting text from ${originalFileName}...`);
     const ocrResult = await ocrService.extractTextFromFile(filePath, fileMimeType);
     const rawText = ocrResult.rawText || '';
 
     // 3. Dynamic Category Engine preparation
     const existingCategories = await Category.find({ user: req.user._id });
 
-    // 4. AI Structured JSON Extraction (Ollama / Gemini / Heuristics)
-    console.log(`[Upload Pipeline] Parsing text with AI Service...`);
-    const extracted = await aiService.parseInvoiceText(rawText, req.user.aiSettings, existingCategories);
+    // 4. AI Structured JSON Extraction
+    const extracted = await aiService.parseInvoiceText(rawText, req.user?.aiSettings || {}, existingCategories);
 
     // 5. Dynamic Category Engine Assignment / Creation
     let assignedCategory = null;
     let assignedCategoryName = extracted.suggestedCategory || 'General / Miscellaneous';
 
-    // Find if user already has this category (case-insensitive)
     let matchCat = existingCategories.find(c => 
       c.name.toLowerCase() === assignedCategoryName.toLowerCase()
     );
@@ -68,9 +65,7 @@ async function uploadBill(req, res) {
       assignedCategory = matchCat._id;
       assignedCategoryName = matchCat.name;
     } else {
-      // Automatically create the new category dynamically
-      console.log(`[Category Engine] Creating new dynamic category: "${assignedCategoryName}"`);
-      const palette = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#f97316'];
+      const palette = ['#1e293b', '#334155', '#475569', '#64748b', '#2563eb', '#0d9488'];
       const randomColor = palette[Math.floor(Math.random() * palette.length)];
       
       try {
@@ -78,12 +73,11 @@ async function uploadBill(req, res) {
           user: req.user._id,
           name: assignedCategoryName,
           color: randomColor,
-          description: `Auto-generated category for ${extracted.vendorName} bills.`
+          description: `Category for ${extracted.vendorName} invoices.`
         });
         assignedCategory = newCat._id;
         assignedCategoryName = newCat.name;
       } catch (catErr) {
-        // Fallback to first existing category
         const fallback = existingCategories[0];
         if (fallback) {
           assignedCategory = fallback._id;
@@ -92,22 +86,36 @@ async function uploadBill(req, res) {
       }
     }
 
-    // 6. Automated Audit, Compliance & Math Checks
-    const subtotal = parseFloat(extracted.subtotal) || 0;
-    const taxAmount = parseFloat(extracted.taxAmount) || 0;
-    const grandTotal = parseFloat(extracted.grandTotal) || 0;
+    // 6. Mathematical Calculations & Strict Validation
+    let subtotal = Math.max(0, Math.abs(parseFloat(extracted.subtotal) || 0));
+    let taxAmount = Math.max(0, Math.abs(parseFloat(extracted.taxAmount) || 0));
+    let grandTotal = Math.max(0, Math.abs(parseFloat(extracted.grandTotal) || 0));
 
-    // A. Math Discrepancy Check (Subtotal + Tax == Grand Total)
-    const expectedTotal = parseFloat((subtotal + taxAmount).toFixed(2));
-    const totalDiff = Math.abs(expectedTotal - grandTotal);
-    const hasMathDiscrepancy = totalDiff > 0.05; // 5 cents tolerance for rounding
-    let mathDetails = '';
-
-    if (hasMathDiscrepancy) {
-      mathDetails = `Calculation mismatch: Subtotal ($${subtotal.toFixed(2)}) + Tax ($${taxAmount.toFixed(2)}) equals $${expectedTotal.toFixed(2)}, which does not match Grand Total ($${grandTotal.toFixed(2)}). Discrepancy of $${Math.abs(grandTotal - expectedTotal).toFixed(2)}.`;
+    // Handle default fallback calculation if grandTotal was 0
+    if (grandTotal === 0 && subtotal > 0) {
+      grandTotal = parseFloat((subtotal + taxAmount).toFixed(2));
+    } else if (subtotal === 0 && grandTotal > 0 && taxAmount > 0) {
+      subtotal = Math.max(0, parseFloat((grandTotal - taxAmount).toFixed(2)));
     }
 
-    // B. Duplicate Receipt Protection (Hash or Vendor + Invoice# + Date)
+    // STRICT MATHEMATICAL VALIDATION RULE:
+    // Subtotal + Tax Amount MUST equal the Grand Total.
+    const expectedTotal = parseFloat((subtotal + taxAmount).toFixed(2));
+    const totalDiff = Math.abs(expectedTotal - grandTotal);
+
+    if (totalDiff > 0.02) {
+      // Remove temporary file on disk
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (e) {}
+
+      return res.status(400).json({
+        success: false,
+        message: 'Calculation error: Subtotal and Tax must equal Grand Total.'
+      });
+    }
+
+    // Duplicate check
     let isDuplicate = !!duplicateByHash;
     let duplicateBillId = duplicateByHash ? duplicateByHash._id : null;
 
@@ -123,16 +131,9 @@ async function uploadBill(req, res) {
       }
     }
 
-    // C. Tax Rule Validation
+    // Tax Rule Validation
     const isMissingTaxId = !extracted.taxId || extracted.taxId.trim().length === 0;
     const isMissingAddress = !extracted.vendorAddress || extracted.vendorAddress.trim().length < 5;
-
-    // D. Manual Review Flag
-    const needsManualReview = ocrResult.needsManualReview || 
-                              hasMathDiscrepancy || 
-                              isDuplicate || 
-                              !rawText || 
-                              extracted.vendorName === 'Unknown Vendor';
 
     // 7. Persist to MongoDB
     const relativeFilePath = `/uploads/${path.basename(filePath)}`;
@@ -160,20 +161,17 @@ async function uploadBill(req, res) {
       ocrRawText: rawText,
       aiExtractedData: extracted,
       auditFlags: {
-        mathDiscrepancy: hasMathDiscrepancy,
-        mathDiscrepancyDetails: mathDetails,
+        mathDiscrepancy: false,
+        mathDiscrepancyDetails: '',
         duplicateReceipt: isDuplicate,
         duplicateBillId: duplicateBillId,
         missingTaxId: isMissingTaxId,
         missingAddress: isMissingAddress,
-        needsManualReview: needsManualReview,
-        manualReviewReason: needsManualReview 
-          ? (ocrResult.error || (hasMathDiscrepancy ? 'Math discrepancy detected' : (isDuplicate ? 'Duplicate receipt detected' : 'Review suggested')))
-          : ''
+        needsManualReview: isDuplicate || !rawText || extracted.vendorName === 'Unknown Vendor'
       },
       notes: [{
-        author: 'System Audit',
-        text: `Processed via ${extracted.parsingEngineUsed.toUpperCase()} on ${new Date().toLocaleString()}. OCR characters extracted: ${rawText.length}.`
+        author: 'System',
+        text: `Invoice verified on ${new Date().toLocaleDateString()}.`
       }]
     });
 
@@ -181,7 +179,7 @@ async function uploadBill(req, res) {
 
     res.json({
       success: true,
-      message: 'Invoice uploaded and analyzed successfully!',
+      message: 'Invoice verified and saved successfully.',
       billId: bill._id,
       bill: {
         id: bill._id,
@@ -189,16 +187,17 @@ async function uploadBill(req, res) {
         invoiceNumber: bill.invoiceNumber,
         category: bill.categoryName,
         grandTotal: bill.grandTotal,
-        paymentStatus: bill.paymentStatus,
-        auditFlags: bill.auditFlags,
-        engine: extracted.parsingEngineUsed
+        paymentStatus: bill.paymentStatus
       }
     });
   } catch (error) {
-    console.error('[Upload Pipeline] Error:', error);
+    console.error('[Upload Pipeline] Error:', error.message);
+    if (filePath && fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch (e) {}
+    }
     res.status(500).json({
       success: false,
-      message: `Failed to process bill: ${error.message}`
+      message: 'Failed to process invoice. Please check the file format and try again.'
     });
   }
 }
@@ -224,7 +223,6 @@ async function getBills(req, res) {
 
     const query = { user: req.user._id };
 
-    // Search by vendor name, firm name, invoice number, or tax ID
     if (search && search.trim()) {
       const searchRegex = new RegExp(search.trim(), 'i');
       query.$or = [
@@ -235,17 +233,14 @@ async function getBills(req, res) {
       ];
     }
 
-    // Filter by category
     if (category && category !== 'all') {
       query.category = category;
     }
 
-    // Filter by payment status
     if (status && ['Paid', 'Due'].includes(status)) {
       query.paymentStatus = status;
     }
 
-    // Filter by audit flags
     if (auditFilter === 'mathDiscrepancy') {
       query['auditFlags.mathDiscrepancy'] = true;
     } else if (auditFilter === 'duplicate') {
@@ -256,7 +251,6 @@ async function getBills(req, res) {
       query['auditFlags.needsManualReview'] = true;
     }
 
-    // Filter by Date Range
     if (startDate || endDate) {
       query.billDate = {};
       if (startDate) query.billDate.$gte = new Date(startDate);
@@ -287,7 +281,7 @@ async function getBills(req, res) {
     const totalPages = Math.ceil(totalCount / limitNum) || 1;
 
     res.render('bills', {
-      title: 'Audit & Tax Bills Registry | Audit Manager',
+      title: 'Invoices',
       bills,
       categories,
       totalCount,
@@ -296,16 +290,16 @@ async function getBills(req, res) {
       query: req.query
     });
   } catch (error) {
-    console.error('Error fetching bills:', error);
+    console.error('Error fetching bills:', error.message);
     res.status(500).render('bills', {
-      title: 'Audit & Tax Bills Registry',
+      title: 'Invoices',
       bills: [],
       categories: [],
       totalCount: 0,
       totalPages: 1,
       currentPage: 1,
       query: {},
-      error: error.message
+      error: 'Unable to load bills at this time.'
     });
   }
 }
@@ -329,19 +323,19 @@ async function showBillDetail(req, res) {
         totalPages: 1,
         currentPage: 1,
         query: {},
-        error: 'The requested bill record does not exist or you do not have permission to view it.'
+        error: 'The requested bill record could not be found.'
       });
     }
 
     const categories = await Category.find({ user: req.user._id }).sort({ name: 1 });
 
     res.render('billDetail', {
-      title: `Audit Bill: ${bill.vendorName} (${bill.invoiceNumber || 'No INV#'})`,
+      title: `Invoice: ${bill.vendorName}`,
       bill,
       categories
     });
   } catch (error) {
-    console.error('Error loading bill detail:', error);
+    console.error('Error loading bill detail:', error.message);
     res.redirect('/bills');
   }
 }
@@ -354,7 +348,7 @@ async function updateBill(req, res) {
   try {
     const bill = await Bill.findOne({ _id: req.params.id, user: req.user._id });
     if (!bill) {
-      return res.status(404).json({ success: false, message: 'Bill not found.' });
+      return res.status(404).json({ success: false, message: 'Bill record not found.' });
     }
 
     const {
@@ -373,6 +367,23 @@ async function updateBill(req, res) {
       clearReviewFlag
     } = req.body;
 
+    // Sanitize non-negative numbers
+    const newSubtotal = subtotal !== undefined ? Math.max(0, Math.abs(parseFloat(subtotal) || 0)) : bill.subtotal;
+    const newTax = taxAmount !== undefined ? Math.max(0, Math.abs(parseFloat(taxAmount) || 0)) : bill.taxAmount;
+    const newGrandTotal = grandTotal !== undefined ? Math.max(0, Math.abs(parseFloat(grandTotal) || 0)) : bill.grandTotal;
+
+    // STRICT MATHEMATICAL VALIDATION:
+    // Subtotal + Tax MUST equal Grand Total
+    const expectedTotal = parseFloat((newSubtotal + newTax).toFixed(2));
+    const totalDiff = Math.abs(expectedTotal - newGrandTotal);
+
+    if (totalDiff > 0.02) {
+      return res.status(400).json({
+        success: false,
+        message: 'Calculation error: Subtotal and Tax must equal Grand Total.'
+      });
+    }
+
     if (vendorName) bill.vendorName = vendorName.trim();
     if (firmName !== undefined) bill.firmName = firmName.trim();
     if (invoiceNumber !== undefined) bill.invoiceNumber = invoiceNumber.trim();
@@ -384,23 +395,12 @@ async function updateBill(req, res) {
       bill.paymentStatus = paymentStatus;
     }
 
-    if (subtotal !== undefined) bill.subtotal = parseFloat(subtotal) || 0;
-    if (taxAmount !== undefined) bill.taxAmount = parseFloat(taxAmount) || 0;
-    if (grandTotal !== undefined) bill.grandTotal = parseFloat(grandTotal) || 0;
+    bill.subtotal = newSubtotal;
+    bill.taxAmount = newTax;
+    bill.grandTotal = newGrandTotal;
 
-    // Recalculate Audit Math Discrepancy
-    const expectedTotal = parseFloat((bill.subtotal + bill.taxAmount).toFixed(2));
-    const totalDiff = Math.abs(expectedTotal - bill.grandTotal);
-    const hasMathDiscrepancy = totalDiff > 0.05;
-
-    bill.auditFlags.mathDiscrepancy = hasMathDiscrepancy;
-    if (hasMathDiscrepancy) {
-      bill.auditFlags.mathDiscrepancyDetails = `Calculation mismatch: Subtotal ($${bill.subtotal.toFixed(2)}) + Tax ($${bill.taxAmount.toFixed(2)}) equals $${expectedTotal.toFixed(2)}, which does not match Grand Total ($${bill.grandTotal.toFixed(2)}).`;
-    } else {
-      bill.auditFlags.mathDiscrepancyDetails = '';
-    }
-
-    // Check tax ID flag
+    bill.auditFlags.mathDiscrepancy = false;
+    bill.auditFlags.mathDiscrepancyDetails = '';
     bill.auditFlags.missingTaxId = !bill.taxId || bill.taxId.trim().length === 0;
 
     if (categoryId) {
@@ -416,22 +416,22 @@ async function updateBill(req, res) {
       bill.auditFlags.manualReviewReason = '';
     }
 
-    // Add note of modification
+    const authorDisplayName = req.user.formattedName || req.user.name;
     bill.notes.push({
-      author: req.user.name || 'Auditor',
-      text: `Updated bill values and verified math check on ${new Date().toLocaleString()}.`
+      author: authorDisplayName,
+      text: `Updated on ${new Date().toLocaleDateString()}.`
     });
 
     await bill.save();
 
     res.json({
       success: true,
-      message: 'Bill record updated and audit check refreshed successfully!',
+      message: 'Invoice updated successfully.',
       bill
     });
   } catch (error) {
-    console.error('Error updating bill:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error updating bill:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to update invoice.' });
   }
 }
 
@@ -443,7 +443,7 @@ async function toggleStatus(req, res) {
   try {
     const bill = await Bill.findOne({ _id: req.params.id, user: req.user._id });
     if (!bill) {
-      return res.status(404).json({ success: false, message: 'Bill not found' });
+      return res.status(404).json({ success: false, message: 'Bill record not found.' });
     }
 
     bill.paymentStatus = bill.paymentStatus === 'Paid' ? 'Due' : 'Paid';
@@ -452,11 +452,10 @@ async function toggleStatus(req, res) {
     res.json({
       success: true,
       newStatus: bill.paymentStatus,
-      message: `Status updated to ${bill.paymentStatus}`
+      message: `Status marked as ${bill.paymentStatus}.`
     });
   } catch (error) {
-    console.error('Toggle status error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Could not toggle payment status.' });
   }
 }
 
@@ -468,16 +467,17 @@ async function addAuditNote(req, res) {
   try {
     const { noteText } = req.body;
     if (!noteText || !noteText.trim()) {
-      return res.status(400).json({ success: false, message: 'Note text cannot be empty.' });
+      return res.status(400).json({ success: false, message: 'Please enter a note.' });
     }
 
     const bill = await Bill.findOne({ _id: req.params.id, user: req.user._id });
     if (!bill) {
-      return res.status(404).json({ success: false, message: 'Bill not found' });
+      return res.status(404).json({ success: false, message: 'Bill record not found.' });
     }
 
+    const authorDisplayName = req.user.formattedName || req.user.name;
     const note = {
-      author: req.user.name || 'Auditor',
+      author: authorDisplayName,
       text: noteText.trim(),
       createdAt: new Date()
     };
@@ -487,12 +487,11 @@ async function addAuditNote(req, res) {
 
     res.json({
       success: true,
-      message: 'Audit note added successfully.',
+      message: 'Note added.',
       note
     });
   } catch (error) {
-    console.error('Add note error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Could not save note.' });
   }
 }
 
@@ -504,7 +503,7 @@ async function togglePii(req, res) {
   try {
     const bill = await Bill.findOne({ _id: req.params.id, user: req.user._id });
     if (!bill) {
-      return res.status(404).json({ success: false, message: 'Bill not found' });
+      return res.status(404).json({ success: false, message: 'Bill not found.' });
     }
 
     bill.piiMasked = !bill.piiMasked;
@@ -513,11 +512,10 @@ async function togglePii(req, res) {
     res.json({
       success: true,
       piiMasked: bill.piiMasked,
-      message: `PII Masking ${bill.piiMasked ? 'Enabled' : 'Disabled'}`
+      message: `Sensitive info ${bill.piiMasked ? 'masked' : 'visible'}.`
     });
   } catch (error) {
-    console.error('Toggle PII error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Could not update visibility.' });
   }
 }
 
@@ -529,18 +527,13 @@ async function deleteBill(req, res) {
   try {
     const bill = await Bill.findOne({ _id: req.params.id, user: req.user._id });
     if (!bill) {
-      return res.status(404).json({ success: false, message: 'Bill not found' });
+      return res.status(404).json({ success: false, message: 'Bill record not found.' });
     }
 
-    // Try deleting physical file if it exists
     if (bill.filePath) {
       const fullPath = path.join(__dirname, '..', bill.filePath);
       if (fs.existsSync(fullPath)) {
-        try {
-          fs.unlinkSync(fullPath);
-        } catch (unlinkErr) {
-          console.warn('Could not delete invoice file:', unlinkErr.message);
-        }
+        try { fs.unlinkSync(fullPath); } catch (unlinkErr) {}
       }
     }
 
@@ -548,11 +541,10 @@ async function deleteBill(req, res) {
 
     res.json({
       success: true,
-      message: 'Bill record and associated invoice file removed successfully.'
+      message: 'Invoice deleted successfully.'
     });
   } catch (error) {
-    console.error('Delete bill error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Could not delete invoice.' });
   }
 }
 
@@ -567,4 +559,3 @@ module.exports = {
   togglePii,
   deleteBill
 };
-
