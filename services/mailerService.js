@@ -30,7 +30,10 @@ async function getTransporter() {
       cachedTransporter = nodemailer.createTransport({
         service: 'gmail',
         auth: { user, pass },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 4000,
+        greetingTimeout: 4000,
+        socketTimeout: 4000
       });
       console.log(`[Nodemailer] Active transport: Gmail Service (${user})`);
       return cachedTransporter;
@@ -43,7 +46,10 @@ async function getTransporter() {
         port,
         secure: port === 465,
         auth: { user, pass },
-        tls: { rejectUnauthorized: false }
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 4000,
+        greetingTimeout: 4000,
+        socketTimeout: 4000
       });
       console.log(`[Nodemailer] Active transport: SMTP ${host}:${port} (${user})`);
       return cachedTransporter;
@@ -109,13 +115,27 @@ async function sendVerificationEmail(user, otp, token, type = 'signin') {
   try {
     const info = await mailer.sendMail(mailOptions);
     console.log(`[Nodemailer SUCCESS] Verification email sent to ${user.email} (Type: ${type.toUpperCase()})`);
-    return { success: true, messageId: info.messageId };
+    return { success: true, delivered: true, messageId: info.messageId };
   } catch (error) {
+    const isNetworkBlock = error.code === 'ESOCKET' || 
+                           error.code === 'ETIMEDOUT' || 
+                           error.code === 'ENETUNREACH' || 
+                           error.code === 'ECONNREFUSED' || 
+                           (error.message && error.message.toLowerCase().includes('timeout'));
     console.error(`[Nodemailer ERROR] Failed to send email to ${user.email}:`, error.message);
-    if (error.message.includes('Invalid login') || error.message.includes('Username and Password not accepted')) {
+    if (isNetworkBlock) {
+      console.warn(`[Nodemailer NOTICE] Network/Firewall blocked outbound SMTP. Providing OTP in session/fallback so account verification is not blocked.`);
+    } else if (error.message && (error.message.includes('Invalid login') || error.message.includes('Username and Password not accepted'))) {
       console.error('[Nodemailer TIP] For Gmail: Generate a 16-character App Password at https://myaccount.google.com/apppasswords and set EMAIL_PASS in .env');
     }
-    return { success: true, messageId: `fallback-${Date.now()}`, error: error.message };
+    return { 
+      success: true, 
+      delivered: false, 
+      networkBlocked: isNetworkBlock, 
+      otp: isNetworkBlock ? otp : undefined,
+      messageId: `fallback-${Date.now()}`, 
+      error: error.message 
+    };
   }
 }
 

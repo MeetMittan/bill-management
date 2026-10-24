@@ -9,8 +9,9 @@ let retryCount = 0;
 
 async function connectDB() {
   const options = {
-    serverSelectionTimeoutMS: 8000,
-    connectTimeoutMS: 10000,
+    dbName: 'bill_management',
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 15000,
     socketTimeoutMS: 45000,
   };
 

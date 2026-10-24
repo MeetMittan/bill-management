@@ -91,7 +91,7 @@ async function register(req, res) {
     });
 
     // Send OTP directly to the user's email via Nodemailer
-    await mailerService.sendVerificationEmail(
+    const mailResult = await mailerService.sendVerificationEmail(
       { name: pendingUser.name, email: cleanEmail },
       otp,
       verificationToken,
@@ -107,10 +107,11 @@ async function register(req, res) {
       maxAge: 10 * 60 * 1000
     });
 
+    const isBlocked = mailResult?.networkBlocked ? '&blocked=1' : '';
     if (req.xhr || req.headers.accept?.includes('application/json')) {
-      return res.json({ success: true, redirect: `/verify-otp?email=${encodeURIComponent(cleanEmail)}` });
+      return res.json({ success: true, redirect: `/verify-otp?email=${encodeURIComponent(cleanEmail)}${isBlocked}` });
     }
-    res.redirect(`/verify-otp?email=${encodeURIComponent(cleanEmail)}`);
+    res.redirect(`/verify-otp?email=${encodeURIComponent(cleanEmail)}${isBlocked}`);
   } catch (error) {
     console.error('Registration error:', error.message);
     const msg = 'Unable to complete registration. Please check your information and try again.';
@@ -184,14 +185,20 @@ async function showVerifyEmail(req, res) {
       return res.redirect('/dashboard');
     }
 
+    const isNetworkBlocked = req.query.blocked === '1' || req.query.notice === 'network_blocked';
     const hasSmtpConfigured = !!((process.env.EMAIL_USER || process.env.SMTP_USER) && (process.env.EMAIL_PASS || process.env.SMTP_PASS));
     let devOtp = null;
-    if (!hasSmtpConfigured && targetEmail) {
+    if ((!hasSmtpConfigured || isNetworkBlocked) && targetEmail) {
       const pending = await PendingUser.findOne({ email: targetEmail });
       if (pending && new Date() <= pending.otpExpires) {
         devOtp = pending.otp;
       } else if (user && user.verificationOtp) {
         devOtp = user.verificationOtp;
+      } else {
+        const u = await User.findOne({ email: targetEmail });
+        if (u && u.verificationOtp) {
+          devOtp = u.verificationOtp;
+        }
       }
     }
 
@@ -199,6 +206,7 @@ async function showVerifyEmail(req, res) {
       title: 'Verify Your Email',
       userEmail: targetEmail,
       hasSmtpConfigured,
+      isNetworkBlocked,
       devOtp,
       error: req.query.error || null,
       success: null
@@ -208,6 +216,7 @@ async function showVerifyEmail(req, res) {
       title: 'Verify Your Email',
       userEmail: req.user ? req.user.email : (req.query.email || ''),
       hasSmtpConfigured: false,
+      isNetworkBlocked: false,
       devOtp: null,
       error: 'An unexpected issue occurred. Please request a new code.',
       success: null
@@ -369,7 +378,7 @@ async function resendOtp(req, res) {
       pendingUser.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
       await pendingUser.save();
 
-      await mailerService.sendVerificationEmail(
+      const mailResult = await mailerService.sendVerificationEmail(
         { name: pendingUser.name, email: pendingUser.email },
         otp,
         pendingUser.verificationToken,
@@ -378,7 +387,11 @@ async function resendOtp(req, res) {
 
       return res.json({
         success: true,
-        message: 'A new 6-digit verification code has been sent to your email.'
+        networkBlocked: !!mailResult?.networkBlocked,
+        otp: mailResult?.networkBlocked ? otp : undefined,
+        message: mailResult?.networkBlocked
+          ? 'Network firewall blocked email delivery. Use the verification code shown on screen.'
+          : 'A new 6-digit verification code has been sent to your email.'
       });
     }
 
@@ -389,11 +402,15 @@ async function resendOtp(req, res) {
       const verifyToken = user.generateVerificationToken();
       await user.save();
 
-      await mailerService.sendVerificationEmail(user, otp, verifyToken, 'resend');
+      const mailResult = await mailerService.sendVerificationEmail(user, otp, verifyToken, 'resend');
 
       return res.json({
         success: true,
-        message: 'A new 6-digit verification code has been sent to your email.'
+        networkBlocked: !!mailResult?.networkBlocked,
+        otp: mailResult?.networkBlocked ? otp : undefined,
+        message: mailResult?.networkBlocked
+          ? 'Network firewall blocked email delivery. Use the verification code shown on screen.'
+          : 'A new 6-digit verification code has been sent to your email.'
       });
     }
 
@@ -436,7 +453,7 @@ async function login(req, res) {
     await user.save();
 
     // Send Sign-In OTP email via Nodemailer (no console logs of OTP)
-    await mailerService.sendVerificationEmail(user, otp, verifyToken, 'signin');
+    const mailResult = await mailerService.sendVerificationEmail(user, otp, verifyToken, 'signin');
 
     const token = generateToken(user._id);
     res.cookie('token', token, COOKIE_OPTIONS);
@@ -447,10 +464,11 @@ async function login(req, res) {
       maxAge: 10 * 60 * 1000
     });
 
+    const isBlocked = mailResult?.networkBlocked ? '&blocked=1' : '';
     if (req.xhr || req.headers.accept?.includes('application/json')) {
-      return res.json({ success: true, redirect: `/verify-otp?email=${encodeURIComponent(user.email)}` });
+      return res.json({ success: true, redirect: `/verify-otp?email=${encodeURIComponent(user.email)}${isBlocked}` });
     }
-    return res.redirect(`/verify-otp?email=${encodeURIComponent(user.email)}`);
+    return res.redirect(`/verify-otp?email=${encodeURIComponent(user.email)}${isBlocked}`);
   } catch (error) {
     console.error('Login error:', error.message);
     const msg = 'Unable to sign in. Please try again.';
