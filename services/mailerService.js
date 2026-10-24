@@ -15,10 +15,10 @@ let lastPass = null;
 async function getTransporter() {
   const host = process.env.SMTP_HOST;
   const port = parseInt(process.env.SMTP_PORT || '587');
-  const user = (process.env.EMAIL_USER || process.env.SMTP_USER || '').trim();
-  const rawPass = (process.env.EMAIL_PASS || process.env.SMTP_PASS || '').trim();
+  const user = (process.env.EMAIL_USER || process.env.SMTP_USER || '').trim().replace(/^["']|["']$/g, '');
+  const rawPass = (process.env.EMAIL_PASS || process.env.SMTP_PASS || '').trim().replace(/^["']|["']$/g, '');
   const pass = rawPass.replace(/\s+/g, ''); // strip spaces from Google app passwords
-  const service = process.env.SMTP_SERVICE || (user && user.toLowerCase().includes('gmail.com') ? 'gmail' : null);
+  const service = (process.env.SMTP_SERVICE || '').trim().replace(/^["']|["']$/g, '') || (user && user.toLowerCase().includes('gmail.com') ? 'gmail' : null);
 
   // If credentials changed or transporter not created, re-initialize
   if (!cachedTransporter || lastUser !== user || lastPass !== pass) {

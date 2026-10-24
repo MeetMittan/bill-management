@@ -1,8 +1,11 @@
 const mongoose = require('mongoose');
 
 // Resolve MongoDB connection string (Supports MONGODB_URI, Railway's MONGO_URL, or DATABASE_URL)
-const rawUri = process.env.MONGODB_URI || process.env.MONGO_URL || process.env.DATABASE_URL;
-const MONGODB_URI = rawUri ? rawUri.trim() : 'mongodb://127.0.0.1:27017/bill_management';
+let rawUri = process.env.MONGODB_URI || process.env.MONGO_URL || process.env.DATABASE_URL;
+if (rawUri) {
+  rawUri = rawUri.trim().replace(/^["']|["']$/g, '');
+}
+const MONGODB_URI = rawUri || 'mongodb://127.0.0.1:27017/bill_management';
 const MAX_RETRIES = 5;
 const RETRY_INTERVAL = 5000;
 
