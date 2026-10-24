@@ -58,6 +58,18 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  resetPasswordOtp: {
+    type: String,
+    default: null
+  },
+  resetPasswordOtpExpires: {
+    type: Date,
+    default: null
+  },
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
   emailAlertsEnabled: {
     type: Boolean,
     default: true
@@ -100,6 +112,21 @@ userSchema.methods.generateVerificationOtp = function () {
 userSchema.methods.generateVerificationToken = function () {
   const token = crypto.randomBytes(24).toString('hex');
   this.verificationToken = token;
+  return token;
+};
+
+// Generate 6-digit OTP for password reset (10-minute validity)
+userSchema.methods.generateResetPasswordOtp = function () {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  this.resetPasswordOtp = otp;
+  this.resetPasswordOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+  return otp;
+};
+
+// Generate direct token for password reset email link
+userSchema.methods.generateResetPasswordToken = function () {
+  const token = crypto.randomBytes(24).toString('hex');
+  this.resetPasswordToken = token;
   return token;
 };
 

@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/bill_management';
+// Resolve MongoDB connection string (Supports MONGODB_URI, Railway's MONGO_URL, or DATABASE_URL)
+const rawUri = process.env.MONGODB_URI || process.env.MONGO_URL || process.env.DATABASE_URL;
+const MONGODB_URI = rawUri ? rawUri.trim() : 'mongodb://127.0.0.1:27017/bill_management';
 const MAX_RETRIES = 5;
 const RETRY_INTERVAL = 5000;
 
@@ -8,6 +10,14 @@ let isConnected = false;
 let retryCount = 0;
 
 async function connectDB() {
+  if (!rawUri && (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT)) {
+    console.error('================================================================');
+    console.error('[Database WARNING] MONGODB_URI is not defined in Railway Variables!');
+    console.error('Please go to Railway Dashboard -> Project -> Variables tab');
+    console.error('and add MONGODB_URI=<your MongoDB Atlas connection string>');
+    console.error('================================================================');
+  }
+
   const options = {
     dbName: 'bill_management',
     serverSelectionTimeoutMS: 10000,

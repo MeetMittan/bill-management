@@ -8,6 +8,12 @@
     </div>
 
     <div class="card-body auth-card-body">
+      <% if (typeof success !== 'undefined' && success) { %>
+        <div class="alert-box alert-success" style="background-color: var(--success-light); border: 1px solid var(--success-border); color: var(--success); padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1.25rem; font-size: 0.875rem; text-align: center;">
+          <%= success %>
+        </div>
+      <% } %>
+
       <% if (typeof error !== 'undefined' && error) { %>
         <div class="alert-box alert-error">
           <%= error %>
@@ -21,7 +27,10 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="password">Password</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label class="form-label" for="password" style="margin-bottom: 0;">Password</label>
+            <a href="/forgot-password" style="font-size: 0.8rem; color: var(--secondary); text-decoration: none; font-weight: 500;">Forgot Password?</a>
+          </div>
           <input type="password" id="password" name="password" class="form-control" placeholder="Enter password" required>
         </div>
 

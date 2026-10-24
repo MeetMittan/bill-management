@@ -140,6 +140,70 @@ async function sendVerificationEmail(user, otp, token, type = 'signin') {
 }
 
 /**
+ * Sends Password Reset Email with 6-digit OTP and reset link via Nodemailer
+ */
+async function sendPasswordResetEmail(user, otp, token) {
+  const mailer = await getTransporter();
+  const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const resetLink = `${appUrl}/reset-password?token=${token}&email=${encodeURIComponent(user.email)}`;
+
+  const subject = `Your Password Reset Code: ${otp} - Bill & Tax Audit Manager`;
+  const authUser = (process.env.EMAIL_USER || process.env.SMTP_USER || '').trim();
+  const fromAddress = authUser ? `"Bill & Tax Audit Manager" <${authUser}>` : (process.env.SMTP_FROM || '"Bill & Tax Audit Manager" <alerts@taxbillmanager.com>');
+
+  const mailOptions = {
+    from: fromAddress,
+    to: user.email,
+    subject,
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; color: #1e293b; background-color: #ffffff;">
+        <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px;">Reset Your Password</h2>
+        <p style="font-size: 14px; color: #64748b; margin-top: 0;">Hello ${user.name || 'User'},</p>
+        
+        <p style="font-size: 14px; line-height: 1.5;">We received a request to reset your password. Use the 6-digit verification code below to set a new password:</p>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 34px; font-weight: 800; letter-spacing: 6px; color: #0f172a; font-family: monospace;">${otp}</span>
+          <p style="font-size: 12px; color: #64748b; margin: 8px 0 0 0;">This code is valid for 10 minutes. If you did not request this, you can safely ignore this email.</p>
+        </div>
+
+        <p style="font-size: 14px; color: #475569;">Or click the direct reset link below:</p>
+        <p style="margin: 16px 0;">
+          <a href="${resetLink}" style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">Reset Password</a>
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+        <p style="font-size: 12px; color: #94a3b8; margin: 0;">Bill & Tax Audit Management System</p>
+      </div>
+    `
+  };
+
+  try {
+    const info = await mailer.sendMail(mailOptions);
+    console.log(`[Nodemailer SUCCESS] Password reset email sent to ${user.email}`);
+    return { success: true, delivered: true, messageId: info.messageId };
+  } catch (error) {
+    const isNetworkBlock = error.code === 'ESOCKET' || 
+                           error.code === 'ETIMEDOUT' || 
+                           error.code === 'ENETUNREACH' || 
+                           error.code === 'ECONNREFUSED' || 
+                           (error.message && error.message.toLowerCase().includes('timeout'));
+    console.error(`[Nodemailer ERROR] Failed to send password reset email to ${user.email}:`, error.message);
+    if (isNetworkBlock) {
+      console.warn(`[Nodemailer NOTICE] Network/Firewall blocked outbound SMTP. Providing reset OTP on screen fallback.`);
+    }
+    return { 
+      success: true, 
+      delivered: false, 
+      networkBlocked: isNetworkBlock, 
+      otp: isNetworkBlock ? otp : undefined,
+      messageId: `fallback-${Date.now()}`, 
+      error: error.message 
+    };
+  }
+}
+
+/**
  * Sends a bill due date reminder email to user (uses ₹)
  */
 async function sendDueReminderEmail(user, bill) {
@@ -215,6 +279,7 @@ async function checkAndSendDueAlerts() {
 module.exports = {
   getTransporter,
   sendVerificationEmail,
+  sendPasswordResetEmail,
   sendDueReminderEmail,
   checkAndSendDueAlerts
 };

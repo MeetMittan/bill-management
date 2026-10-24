@@ -22,7 +22,11 @@ function generateToken(userId) {
  * GET /login
  */
 function showLogin(req, res) {
-  res.render('login', { title: 'Sign In', error: null });
+  res.render('login', {
+    title: 'Sign In',
+    error: req.query.error || null,
+    success: req.query.reset === 'success' ? 'Password reset successfully! Please sign in with your new password.' : (req.query.success || null)
+  });
 }
 
 /**
@@ -637,6 +641,176 @@ async function changePassword(req, res) {
   }
 }
 
+/**
+ * GET /forgot-password
+ */
+function showForgotPassword(req, res) {
+  res.render('forgot-password', {
+    title: 'Forgot Password',
+    error: req.query.error || null,
+    success: null
+  });
+}
+
+/**
+ * POST /forgot-password or POST /api/auth/forgot-password
+ */
+async function forgotPassword(req, res) {
+  try {
+    const email = (req.body.email || '').toLowerCase().trim();
+    const isApi = req.xhr || req.headers.accept?.includes('application/json');
+
+    if (!email) {
+      const msg = 'Please enter your email address.';
+      if (isApi) return res.status(400).json({ success: false, message: msg });
+      return res.render('forgot-password', { title: 'Forgot Password', error: msg, success: null });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      const msg = 'No account found with this email address. Please register.';
+      if (isApi) return res.status(404).json({ success: false, message: msg });
+      return res.render('forgot-password', { title: 'Forgot Password', error: msg, success: null });
+    }
+
+    // Generate 6-digit OTP & token (10 min expiry)
+    const otp = user.generateResetPasswordOtp();
+    const token = user.generateResetPasswordToken();
+    await user.save();
+
+    // Send reset email via Nodemailer
+    const mailResult = await mailerService.sendPasswordResetEmail(user, otp, token);
+
+    const isBlocked = mailResult?.networkBlocked ? '&blocked=1' : '';
+    if (isApi) {
+      return res.json({
+        success: true,
+        redirect: `/reset-password?email=${encodeURIComponent(user.email)}${isBlocked}`,
+        networkBlocked: !!mailResult?.networkBlocked,
+        otp: mailResult?.networkBlocked ? otp : undefined,
+        message: 'Password reset code has been sent to your email.'
+      });
+    }
+
+    return res.redirect(`/reset-password?email=${encodeURIComponent(user.email)}${isBlocked}`);
+  } catch (error) {
+    console.error('Forgot password error:', error.message);
+    const msg = 'Unable to process password reset. Please try again.';
+    if (req.xhr || req.headers.accept?.includes('application/json')) {
+      return res.status(500).json({ success: false, message: msg });
+    }
+    return res.render('forgot-password', { title: 'Forgot Password', error: msg, success: null });
+  }
+}
+
+/**
+ * GET /reset-password
+ */
+async function showResetPassword(req, res) {
+  try {
+    const { token, email, blocked } = req.query;
+    const targetEmail = (email || '').toLowerCase().trim();
+
+    let devOtp = null;
+    let validToken = false;
+
+    if (targetEmail) {
+      const user = await User.findOne({ email: targetEmail });
+      if (user && user.resetPasswordOtp && user.resetPasswordOtpExpires && new Date() <= user.resetPasswordOtpExpires) {
+        if (blocked === '1' || !((process.env.EMAIL_USER || process.env.SMTP_USER) && (process.env.EMAIL_PASS || process.env.SMTP_PASS))) {
+          devOtp = user.resetPasswordOtp;
+        }
+        if (token && user.resetPasswordToken === token) {
+          validToken = true;
+        }
+      }
+    }
+
+    res.render('reset-password', {
+      title: 'Reset Password',
+      email: targetEmail,
+      token: token || '',
+      validToken,
+      isNetworkBlocked: blocked === '1',
+      devOtp,
+      error: req.query.error || null,
+      success: null
+    });
+  } catch (error) {
+    console.error('Show reset password error:', error.message);
+    res.redirect('/forgot-password?error=' + encodeURIComponent('An error occurred. Please try again.'));
+  }
+}
+
+/**
+ * POST /reset-password or POST /api/auth/reset-password
+ */
+async function resetPassword(req, res) {
+  try {
+    const email = (req.body.email || req.query.email || '').toLowerCase().trim();
+    const otpInput = (req.body.otp || '').trim();
+    const token = (req.body.token || req.query.token || '').trim();
+    const password = req.body.password;
+    const confirmPassword = req.body.confirmPassword;
+    const isApi = req.xhr || req.headers.accept?.includes('application/json');
+
+    if (!email) {
+      const msg = 'Email address is required.';
+      if (isApi) return res.status(400).json({ success: false, message: msg });
+      return res.render('reset-password', { title: 'Reset Password', email, token, validToken: false, isNetworkBlocked: false, devOtp: null, error: msg, success: null });
+    }
+
+    if (!password || password.length < 6) {
+      const msg = 'New password must be at least 6 characters.';
+      if (isApi) return res.status(400).json({ success: false, message: msg });
+      return res.render('reset-password', { title: 'Reset Password', email, token, validToken: false, isNetworkBlocked: false, devOtp: null, error: msg, success: null });
+    }
+
+    if (password !== confirmPassword) {
+      const msg = 'Passwords do not match.';
+      if (isApi) return res.status(400).json({ success: false, message: msg });
+      return res.render('reset-password', { title: 'Reset Password', email, token, validToken: false, isNetworkBlocked: false, devOtp: null, error: msg, success: null });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      const msg = 'Invalid or expired password reset request.';
+      if (isApi) return res.status(400).json({ success: false, message: msg });
+      return res.render('reset-password', { title: 'Reset Password', email, token, validToken: false, isNetworkBlocked: false, devOtp: null, error: msg, success: null });
+    }
+
+    // Verify either OTP or Token
+    const isOtpMatch = otpInput && user.resetPasswordOtp && user.resetPasswordOtp === otpInput;
+    const isTokenMatch = token && user.resetPasswordToken && user.resetPasswordToken === token;
+    const isExpired = !user.resetPasswordOtpExpires || new Date() > user.resetPasswordOtpExpires;
+
+    if ((!isOtpMatch && !isTokenMatch) || isExpired) {
+      const msg = 'Invalid or expired 6-digit reset code.';
+      if (isApi) return res.status(400).json({ success: false, message: msg });
+      return res.render('reset-password', { title: 'Reset Password', email, token, validToken: false, isNetworkBlocked: false, devOtp: null, error: msg, success: null });
+    }
+
+    // Set new password (pre-save hook hashes with bcrypt!)
+    user.password = password;
+    user.resetPasswordOtp = undefined;
+    user.resetPasswordOtpExpires = undefined;
+    user.resetPasswordToken = undefined;
+    await user.save();
+
+    if (isApi) {
+      return res.json({ success: true, redirect: '/login?reset=success', message: 'Password reset successfully!' });
+    }
+    return res.redirect('/login?reset=success');
+  } catch (error) {
+    console.error('Reset password error:', error.message);
+    const msg = 'Unable to reset password. Please try again.';
+    if (req.xhr || req.headers.accept?.includes('application/json')) {
+      return res.status(500).json({ success: false, message: msg });
+    }
+    return res.render('reset-password', { title: 'Reset Password', email: req.body?.email || '', token: '', validToken: false, isNetworkBlocked: false, devOtp: null, error: msg, success: null });
+  }
+}
+
 module.exports = {
   showLogin,
   showRegister,
@@ -648,5 +822,9 @@ module.exports = {
   logout,
   showProfile,
   updateProfile,
-  changePassword
+  changePassword,
+  showForgotPassword,
+  forgotPassword,
+  showResetPassword,
+  resetPassword
 };

@@ -18,6 +18,9 @@ const mailerService = require('./services/mailerService');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Enable trust proxy for reverse proxies (Railway, Render, Heroku, Cloudflare)
+app.set('trust proxy', 1);
+
 // Connect to MongoDB
 connectDB();
 
@@ -38,12 +41,18 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: 'Too many authentication attempts from this IP. Please try again after 15 minutes.'
 });
 
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: { success: false, message: 'Upload rate limit reached. Please wait a few moments before submitting more bills.' }
 });
 
@@ -64,6 +73,15 @@ app.get('/register', redirectIfAuthenticated, authController.showRegister);
 app.post('/register', authLimiter, authController.register);
 
 app.get('/logout', authController.logout);
+
+// Forgot & Reset Password
+app.get('/forgot-password', redirectIfAuthenticated, authController.showForgotPassword);
+app.post('/forgot-password', authLimiter, authController.forgotPassword);
+app.post('/api/auth/forgot-password', authLimiter, authController.forgotPassword);
+
+app.get('/reset-password', redirectIfAuthenticated, authController.showResetPassword);
+app.post('/reset-password', authLimiter, authController.resetPassword);
+app.post('/api/auth/reset-password', authLimiter, authController.resetPassword);
 
 // Email & Sign-In OTP Verification
 app.get('/verify-otp', authController.showVerifyEmail);

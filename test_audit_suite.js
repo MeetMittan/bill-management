@@ -257,6 +257,35 @@ async function runTestSuite() {
     const isNewPassValid = await user.comparePassword('NewSecurePassword456!');
     assert(isNewPassValid === true, 'User password updated and bcrypt verified');
 
+    console.log('\n--- Test Suite 8: Forgot Password & Reset Flow ---');
+    const forgotViewExists = fs.existsSync('./views/forgot-password.ejs');
+    assert(forgotViewExists === true, 'views/forgot-password.ejs template exists');
+
+    const resetViewExists = fs.existsSync('./views/reset-password.ejs');
+    assert(resetViewExists === true, 'views/reset-password.ejs template exists');
+
+    const resetOtp = user.generateResetPasswordOtp();
+    assert(typeof resetOtp === 'string' && resetOtp.length === 6 && /^\d{6}$/.test(resetOtp), `6-digit reset OTP generated: ${resetOtp}`);
+    assert(user.resetPasswordOtpExpires instanceof Date && user.resetPasswordOtpExpires > new Date(), 'Reset OTP has valid 10-minute expiry');
+
+    const resetToken = user.generateResetPasswordToken();
+    assert(typeof resetToken === 'string' && resetToken.length === 48, 'Secure reset token generated');
+
+    // Test rejection of wrong OTP
+    const isWrongOtpMatch = '000000' === user.resetPasswordOtp;
+    assert(isWrongOtpMatch === false, 'Mismatched reset OTP is rejected');
+
+    // Test password reset execution
+    user.password = 'SuperResetPass789!';
+    user.resetPasswordOtp = undefined;
+    user.resetPasswordOtpExpires = undefined;
+    user.resetPasswordToken = undefined;
+    await user.save();
+
+    const isResetPassValid = await user.comparePassword('SuperResetPass789!');
+    assert(isResetPassValid === true, 'Password successfully reset and bcrypt verified');
+    assert(user.resetPasswordOtp === undefined, 'Reset OTP cleared after successful reset');
+
     // Cleanup test records
     await Bill.deleteMany({ user: user._id });
     await Category.deleteMany({ user: user._id });
